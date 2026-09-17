@@ -215,6 +215,21 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeを
 - Actions画面の`Run workflow`から手動実行も可能
 - 完了後、Artifactの`ore-filer-windows`から`ore-filer.exe`を取得
 
+## 自動更新の設計方針（将来実装）
+
+現在は未実装。実装時は、`custom_cfiler`の仕組みを参考にしつつ、次の方針にする。
+
+- **配布元**: GitHub ActionsのArtifactではなく、GitHub Releaseにインストーラーを添付する。Artifactは保存期間や取得方法が安定した一般配布向けではない
+- **リリース形式**: `v1.2.3`のようなタグを起点にActionsでビルドし、`ore-filer-installer.exe`とSHA-256チェックサムをReleaseへ登録する
+- **確認先**: GitHub Releases APIの`/releases/latest`をHTTPSで取得する。ダウンロードURLは許可したリポジトリのRelease assetに限定する
+- **確認タイミング**: 起動時にバックグラウンドで確認する。最終確認日時を`%APPDATA%\ore-filer`へ保存し、標準は1日1回とする。手動確認も用意する
+- **バージョン比較**: 文字列比較は使わず、`packaging.version.Version`でSemVerを比較する。現在バージョンは`pyproject.toml`など一カ所を正とする
+- **UI**: 新バージョン、変更概要、更新サイズを表示し、ユーザーの明示的な承認後にダウンロードする。サイレント更新はしない
+- **検証**: ダウンロード後にSHA-256を検証し、可能ならWindowsのコード署名も検証する。不一致、タイムアウト、壊れたレスポンスの場合はインストールしない
+- **インストール**: 実行中のexeは直接上書きせず、NSISやInno Setupのインストーラーを一時フォルダーから起動してアプリを終了する。設定やユーザーデータは保持する
+- **失敗時の動作**: ネットワーク障害や更新キャンセルでアプリの起動を妨げない。失敗理由はログへ記録し、次回の確認を可能にする
+- **テスト対象**: 最新版、更新あり、無効なバージョン、API障害、タイムアウト、チェックサム不一致、キャンセル、インストール後の再起動を検証する
+
 ## cfiler準拠の標準キー
 
 標準設定はcfilerの「デフォルト - 106キーボード」を基準にする。
