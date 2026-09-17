@@ -44,25 +44,24 @@ ore-filer/
 ├── pyproject.toml
 ├── ore_filer/
 │   ├── app.py
-│   ├── main_window.py
-│   ├── pane.py
-│   ├── file_model.py
-│   ├── keymap.py
-│   ├── commands.py
-│   ├── file_operations.py
-│   ├── dialogs.py
 │   ├── settings.py
 │   ├── services/
 │   │   ├── file_service.py
 │   │   ├── directory_service.py
-│   │   └── search_service.py
+│   │   ├── search_service.py
+│   │   ├── file_model.py
+│   │   └── file_operations.py
 │   ├── api/
 │   │   ├── app.py
 │   │   ├── command.py
 │   │   ├── context.py
 │   │   └── filesystem.py
 │   ├── gui/
-│   │   └── main_window.py
+│   │   ├── main_window.py
+│   │   ├── pane.py
+│   │   ├── dialogs.py
+│   │   ├── keymap.py
+│   │   └── commands.py
 │   └── cli/
 │       └── main.py
 ├── config/
@@ -72,6 +71,73 @@ ore-filer/
         ├── plugin.py
         └── README.md
 ```
+
+## ソースファイルの役割
+
+### ルート
+
+| ファイル | 役割 |
+|---|---|
+| `ore_filer/app.py` | アプリケーションの起動処理。`QApplication`とメインウィンドウを作成する |
+| `ore_filer/settings.py` | アプリケーション設定、ユーザー設定、設定ファイルの管理 |
+
+### `ore_filer/gui/`
+
+画面表示とユーザー入力を担当する。ファイル操作の本体は`services`を呼び出す。
+
+| ファイル | 役割 |
+|---|---|
+| `main_window.py` | メインウィンドウ、左右ペイン、アクティブペインの管理 |
+| `pane.py` | 1つのペイン、ファイル一覧、フォルダ移動、選択状態の管理 |
+| `dialogs.py` | 確認、入力、エラー表示などのダイアログ |
+| `keymap.py` | キー入力とコマンドの対応、外部キー設定の読み込み |
+| `commands.py` | GUIから実行するコマンドの定義と処理の振り分け |
+
+### `ore_filer/services/`
+
+GUI、CLI、プラグインから共通利用するファイル操作の本体を担当する。
+
+| ファイル | 役割 |
+|---|---|
+| `file_service.py` | ファイルのコピー、移動、削除、リネーム |
+| `directory_service.py` | ディレクトリの作成、列挙、移動 |
+| `search_service.py` | ファイル名検索、内容検索、検索結果の管理 |
+| `file_model.py` | ファイルやディレクトリの情報、一覧データのモデル |
+| `file_operations.py` | 時間のかかるファイル操作、進捗、キャンセルの共通処理 |
+
+### `ore_filer/api/`
+
+Pythonプラグインや外部連携向けの安定した公開APIを担当する。
+
+| ファイル | 役割 |
+|---|---|
+| `app.py` | プラグインからアプリケーション機能へアクセスするAPI |
+| `command.py` | コマンドの基底クラスとコマンド登録API |
+| `context.py` | アクティブペイン、選択項目、通知などの実行コンテキスト |
+| `filesystem.py` | プラグインからファイル操作サービスを利用するAPI |
+
+### `ore_filer/cli/`
+
+コマンドラインからファイル操作を実行する機能を担当する。
+
+| ファイル | 役割 |
+|---|---|
+| `main.py` | CLIの引数解析、サービス呼び出し、結果と終了コードの出力 |
+
+### `plugins/`
+
+ユーザーがPythonで機能を追加するためのプラグインを配置する。
+
+| ファイル | 役割 |
+|---|---|
+| `sample_plugin/plugin.py` | プラグインのサンプル実装 |
+| `sample_plugin/README.md` | プラグインの使い方とAPI説明 |
+
+### `config/`
+
+| ファイル | 役割 |
+|---|---|
+| `keymap.toml` | cfiler準拠の標準キー割り当て |
 
 ファイル一覧は、まずQt標準の`QFileSystemModel`と`QTreeView`を利用する。コピー、移動、検索、再帰的な削除などの時間がかかる処理はワーカースレッドで実行する。
 
