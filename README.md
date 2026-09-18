@@ -238,11 +238,12 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeを
 |---|---|
 | `Up` / `Down` | カーソル移動 |
 | `PageUp` / `PageDown` | ページ単位の移動 |
-| `Ctrl+PageUp` / `Ctrl+PageDown` | リストの先頭・末尾 |
+| `gg` | リストの先頭へ移動 |
+| `Shift+G` | リストの末尾へ移動 |
 | `Left` / `Right` | ペイン切り替え、または親ディレクトリ |
 | `Tab` | アクティブペイン切り替え |
 | `Backspace` | 親ディレクトリへ移動 |
-| `Yen` | ルートディレクトリへ移動 |
+| `Yen` | ホームディレクトリ（`~`）へ移動 |
 | `Return` | フォルダーへ移動、またはアーカイブを開く |
 | `Shift+Return` | 関連付け実行 |
 | `Escape` | 検索結果・フィルターを解除、処理の中断 |
@@ -263,7 +264,7 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeを
 | `Shift+R` | 一括リネーム |
 | `F` | インクリメンタルフィルター |
 | `Shift+F` | ファイル名検索（`*` / `?` 対応、結果一覧を表示） |
-| `Shift+G` | ファイル内容検索 |
+| `G` | ファイル内容検索（実装予定） |
 | `I` | ファイル情報 |
 | `H` | 履歴 |
 | `J` | ジャンプリスト |

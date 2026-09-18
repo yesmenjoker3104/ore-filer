@@ -6,6 +6,7 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QSortFilterProxyModel,
+    QTimer,
     Qt,
     Signal,
 )
@@ -38,6 +39,14 @@ class FileItemDelegate(QStyledItemDelegate):
 
         option.state &= ~QStyle.StateFlag.State_HasFocus
         super().paint(painter, option, index)
+
+        pane = view.parent()
+        if hasattr(pane, "bookmarks") and pane.bookmarks:
+            path = pane.path_from_index(index)
+            if path and str(path).casefold() in pane.bookmarks:
+                painter.save()
+                painter.fillRect(option.rect, QColor(150, 110, 20, 90))
+                painter.restore()
 
         if (
             view.cursor_visible
@@ -74,15 +83,45 @@ class FileTreeView(QTreeView):
         self.viewport().update(0, rect.top(), self.viewport().width(), rect.height())
 
 
+SORT_NAME = "name"
+SORT_EXT = "ext"
+SORT_SIZE = "size"
+SORT_DATE = "date"
+
+
 class FileFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._query = ""
         self._root_path: Path | None = None
+        self._sort_mode = SORT_NAME
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
     def set_root_path(self, path: str | Path) -> None:
         self._root_path = Path(path).expanduser().resolve()
+
+    def set_sort_mode(self, mode: str) -> None:
+        self._sort_mode = mode
+
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        source = self.sourceModel()
+        left_is_dir = source.isDir(left)
+        right_is_dir = source.isDir(right)
+        if left_is_dir != right_is_dir:
+            ascending = self.sortOrder() == Qt.SortOrder.AscendingOrder
+            return left_is_dir if ascending else not left_is_dir
+
+        if self._sort_mode == SORT_SIZE:
+            return source.size(left) < source.size(right)
+        if self._sort_mode == SORT_DATE:
+            return source.lastModified(left) < source.lastModified(right)
+        if self._sort_mode == SORT_EXT:
+            left_ext = Path(source.fileName(left)).suffix.casefold()
+            right_ext = Path(source.fileName(right)).suffix.casefold()
+            if left_ext != right_ext:
+                return left_ext < right_ext
+            return source.fileName(left).casefold() < source.fileName(right).casefold()
+        return source.fileName(left).casefold() < source.fileName(right).casefold()
 
     def set_query(self, query: str) -> None:
         normalized_query = query.casefold()
@@ -121,6 +160,7 @@ class SearchResultFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._query = ""
+        self._sort_mode = SORT_NAME
 
     def set_query(self, query: str) -> None:
         normalized_query = query.casefold()
@@ -128,6 +168,9 @@ class SearchResultFilterProxyModel(QSortFilterProxyModel):
             return
         self._query = normalized_query
         self.invalidateFilter()
+
+    def set_sort_mode(self, mode: str) -> None:
+        self._sort_mode = mode
 
     def has_filter(self) -> bool:
         return bool(self._query)
@@ -147,9 +190,37 @@ class SearchResultFilterProxyModel(QSortFilterProxyModel):
         value = index.data(Qt.ItemDataRole.DisplayRole)
         return value is not None and self._query in str(value).casefold()
 
+    def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
+        left_path = Path(left.data(Qt.ItemDataRole.UserRole) or "")
+        right_path = Path(right.data(Qt.ItemDataRole.UserRole) or "")
+        left_is_dir = left_path.is_dir()
+        right_is_dir = right_path.is_dir()
+        if left_is_dir != right_is_dir:
+            ascending = self.sortOrder() == Qt.SortOrder.AscendingOrder
+            return left_is_dir if ascending else not left_is_dir
+
+        if self._sort_mode == SORT_SIZE:
+            try:
+                return left_path.stat().st_size < right_path.stat().st_size
+            except OSError:
+                pass
+        elif self._sort_mode == SORT_DATE:
+            try:
+                return left_path.stat().st_mtime < right_path.stat().st_mtime
+            except OSError:
+                pass
+        elif self._sort_mode == SORT_EXT:
+            left_ext = left_path.suffix.casefold()
+            right_ext = right_path.suffix.casefold()
+            if left_ext != right_ext:
+                return left_ext < right_ext
+            return left_path.name.casefold() < right_path.name.casefold()
+        return left_path.name.casefold() < right_path.name.casefold()
+
 
 class PaneWidget(QWidget):
     path_changed = Signal(str)
+    selection_changed = Signal()
 
     def __init__(
         self,
@@ -179,9 +250,14 @@ class PaneWidget(QWidget):
         self._archive_path: Path | None = None
         self._archive_member_dir = ""
         self._archive_password: str | None = None
+        self._sort_mode = SORT_NAME
+        self._sort_order = Qt.SortOrder.AscendingOrder
+        self.bookmarks: set[str] = set()
+        self._select_anchor: int | None = None
 
         self.file_view = FileTreeView()
         self.file_view.setModel(self.filter_model)
+        self._reconnect_selection_signal()
         self.file_view.setColumnWidth(0, 300)
         self.file_view.setSelectionMode(
             QAbstractItemView.SelectionMode.NoSelection
@@ -220,6 +296,7 @@ class PaneWidget(QWidget):
         path = Path(path).resolve()
         if not path.is_dir():
             return
+        self._select_anchor = None
         self._leave_archive_view()
         self.clear_search_results()
         self.clear_filter()
@@ -229,13 +306,62 @@ class PaneWidget(QWidget):
             del self._history[200:]
 
         self.current_path = path
-        self.path_label.setText(str(path))
+        self._update_path_label()
 
+        # root index をクリアしてから root path を変更することで、
+        # QFileSystemModel の再構築中に古い persistent index が
+        # mapToSource に渡るのを防ぐ
+        self.file_view.setRootIndex(QModelIndex())
         self.filter_model.set_root_path(path)
         root_index = self.model.setRootPath(str(path))
-        self.file_view.setRootIndex(self.filter_model.mapFromSource(root_index))
+        proxy_root = self.filter_model.mapFromSource(root_index)
+        if proxy_root.isValid():
+            self.file_view.setRootIndex(proxy_root)
+        self.filter_model.sort(0, self._sort_order)
         self.file_view.selectionModel().clearSelection()
         self.path_changed.emit(str(path))
+
+    def focus_name(self, name: str) -> None:
+        name_lower = name.casefold()
+        if self._try_focus_name_now(name_lower):
+            return
+        QTimer.singleShot(300, lambda: self._try_focus_name_now(name_lower))
+
+    def _try_focus_name_now(self, name_lower: str) -> bool:
+        root = self.file_view.rootIndex()
+        model = self.file_view.model()
+        if model is None:
+            return False
+        for row in range(model.rowCount(root)):
+            index = model.index(row, 0, root)
+            path = self.path_from_index(index)
+            if path and path.name.casefold() == name_lower:
+                self.file_view.setCurrentIndex(index)
+                self.file_view.scrollTo(index)
+                return True
+        return False
+
+    def _update_path_label(self) -> None:
+        labels = {SORT_NAME: "名前", SORT_EXT: "拡張子", SORT_SIZE: "サイズ", SORT_DATE: "日時"}
+        arrow = "↑" if self._sort_order == Qt.SortOrder.AscendingOrder else "↓"
+        prefix = f"[{labels[self._sort_mode]}{arrow}]"
+        if self._search_results is not None:
+            self.path_label.setText(f"{prefix} 検索結果: {self.current_path}")
+        else:
+            self.path_label.setText(f"{prefix} {self.current_path}")
+
+    def set_sort(self, mode: str, order: Qt.SortOrder) -> None:
+        self._sort_mode = mode
+        self._sort_order = order
+        self.filter_model.set_sort_mode(mode)
+        self.filter_model.sort(0, order)
+        if self._search_results is not None:
+            self.search_filter_model.set_sort_mode(mode)
+            self.search_filter_model.sort(0, order)
+        self._update_path_label()
+
+    def sort_mode(self) -> str:
+        return self._sort_mode
 
     def is_archive_view(self) -> bool:
         return self._archive_path is not None
@@ -275,6 +401,7 @@ class PaneWidget(QWidget):
             self.archive_model.appendRow(item)
 
         self.file_view.setModel(self.archive_filter_model)
+        self._reconnect_selection_signal()
         self.file_view.setRootIndex(QModelIndex())
         self.file_view.selectionModel().clearSelection()
         if self.archive_filter_model.rowCount() > 0:
@@ -303,10 +430,13 @@ class PaneWidget(QWidget):
     def _leave_archive_view(self) -> None:
         if not self.is_archive_view():
             return
+        self._select_anchor = None
         self._archive_path = None
         self._archive_member_dir = ""
         self._archive_password = None
+        self.file_view.setRootIndex(QModelIndex())
         self.file_view.setModel(self.filter_model)
+        self._reconnect_selection_signal()
 
     def entry_from_index(self, index: QModelIndex) -> ArchiveEntry | None:
         if (
@@ -403,25 +533,32 @@ class PaneWidget(QWidget):
             self.search_model.appendRow(item)
 
         self.search_filter_model.set_query(self.filter_model.query())
+        self.search_filter_model.set_sort_mode(self._sort_mode)
         self.file_view.setModel(self.search_filter_model)
+        self._reconnect_selection_signal()
         self.file_view.setRootIndex(QModelIndex())
+        self.search_filter_model.sort(0, self._sort_order)
         self.file_view.selectionModel().clearSelection()
         if self.search_filter_model.rowCount() > 0:
             self.file_view.setCurrentIndex(self.search_filter_model.index(0, 0))
-        self.path_label.setText(f"検索結果: {self.current_path}")
+        self._update_path_label()
 
     def clear_search_results(self) -> None:
         if self._search_results is None:
             return
 
+        self._select_anchor = None
         self._search_results = None
+        self.file_view.setRootIndex(QModelIndex())
         self.file_view.setModel(self.filter_model)
+        self._reconnect_selection_signal()
         root_index = self.filter_model.mapFromSource(
             self.model.index(str(self.current_path))
         )
-        self.file_view.setRootIndex(root_index)
+        if root_index.isValid():
+            self.file_view.setRootIndex(root_index)
         self.file_view.selectionModel().clearSelection()
-        self.path_label.setText(str(self.current_path))
+        self._update_path_label()
 
     def has_search_results(self) -> bool:
         return self._search_results is not None
@@ -531,6 +668,22 @@ class PaneWidget(QWidget):
         if parent_path != self.current_path:
             self.navigate_to(parent_path)
 
+    def go_to_first_item(self) -> None:
+        root = self.file_view.rootIndex()
+        first = self.file_view.model().index(0, 0, root)
+        if first.isValid():
+            self.file_view.setCurrentIndex(first)
+            self.file_view.scrollTo(first)
+
+    def go_to_last_item(self) -> None:
+        root = self.file_view.rootIndex()
+        count = self.file_view.model().rowCount(root)
+        if count > 0:
+            last = self.file_view.model().index(count - 1, 0, root)
+            if last.isValid():
+                self.file_view.setCurrentIndex(last)
+                self.file_view.scrollTo(last)
+
     def _on_double_clicked(self, index: QModelIndex) -> None:
         if self.is_archive_view():
             entry = self.entry_from_index(index)
@@ -578,6 +731,54 @@ class PaneWidget(QWidget):
         selection_model.select(index, selection_flag)
         self.file_view.viewport().update()
 
+    def deselect_all(self) -> None:
+        self.file_view.selectionModel().clearSelection()
+        self.file_view.viewport().update()
+
+    def _iter_selectable_indexes(self, include_dirs: bool) -> list[QModelIndex]:
+        model = self.file_view.model()
+        if model is None:
+            return []
+        root = self.file_view.rootIndex()
+        result = []
+        for row in range(model.rowCount(root)):
+            index = model.index(row, 0, root)
+            path = self.path_from_index(index)
+            if path is None or path.name == "..":
+                continue
+            if not include_dirs and path.is_dir():
+                continue
+            result.append(index)
+        return result
+
+    def select_all_files(self) -> None:
+        """ファイルのみ全選択。全選択済みの場合は選択解除（トグル）。"""
+        indexes = self._iter_selectable_indexes(include_dirs=False)
+        if not indexes:
+            return
+        sel = self.file_view.selectionModel()
+        all_selected = all(sel.isSelected(i) for i in indexes)
+        if all_selected:
+            sel.clearSelection()
+        else:
+            for i in indexes:
+                sel.select(i, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+        self.file_view.viewport().update()
+
+    def select_all_items(self) -> None:
+        """ファイル＋ディレクトリを全選択。全選択済みの場合は選択解除（トグル）。"""
+        indexes = self._iter_selectable_indexes(include_dirs=True)
+        if not indexes:
+            return
+        sel = self.file_view.selectionModel()
+        all_selected = all(sel.isSelected(i) for i in indexes)
+        if all_selected:
+            sel.clearSelection()
+        else:
+            for i in indexes:
+                sel.select(i, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+        self.file_view.viewport().update()
+
     def select_current_and_move_down(self) -> None:
         self.toggle_current_selection()
 
@@ -585,3 +786,73 @@ class PaneWidget(QWidget):
         next_index = self.file_view.indexBelow(current_index)
         if next_index.isValid():
             self.file_view.setCurrentIndex(next_index)
+
+    def select_current_and_move_up(self) -> None:
+        self.toggle_current_selection()
+        current_index = self.file_view.currentIndex()
+        prev_index = self.file_view.indexAbove(current_index)
+        if prev_index.isValid():
+            self.file_view.setCurrentIndex(prev_index)
+
+    def range_select(self) -> None:
+        """Ctrl+Space: アンカー設定、または アンカー〜カーソル間を範囲選択。"""
+        index = self.file_view.currentIndex()
+        if not index.isValid():
+            return
+        current_row = index.row()
+        if self._select_anchor is None:
+            self._select_anchor = current_row
+            self.file_view.selectionModel().select(
+                index,
+                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+            )
+        else:
+            anchor_row = self._select_anchor
+            self._select_anchor = None
+            model = self.file_view.model()
+            root = self.file_view.rootIndex()
+            if model is None:
+                return
+            lo, hi = min(anchor_row, current_row), max(anchor_row, current_row)
+            sel = self.file_view.selectionModel()
+            for row in range(lo, hi + 1):
+                idx = model.index(row, 0, root)
+                if idx.isValid():
+                    path = self.path_from_index(idx)
+                    if path is None or path.name != "..":
+                        sel.select(
+                            idx,
+                            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                        )
+        self.file_view.viewport().update()
+
+    def _reconnect_selection_signal(self) -> None:
+        sm = self.file_view.selectionModel()
+        if sm is None:
+            return
+        if getattr(self, "_sel_sm_connected", None) is sm:
+            try:
+                sm.selectionChanged.disconnect(self.selection_changed)
+            except (TypeError, RuntimeError):
+                pass
+        sm.selectionChanged.connect(self.selection_changed)
+        self._sel_sm_connected = sm
+
+    def visible_item_count(self) -> int:
+        model = self.file_view.model()
+        if model is None:
+            return 0
+        return model.rowCount(self.file_view.rootIndex())
+
+    def selected_count(self) -> int:
+        return len(self.file_view.selectionModel().selectedRows(0))
+
+    def selected_total_size(self) -> int:
+        total = 0
+        for path in self.selected_paths():
+            if path.is_file():
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    pass
+        return total

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QThread, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
 	QDialog,
 	QDialogButtonBox,
@@ -264,6 +264,67 @@ class HistoryDialog(QDialog):
 		return super().eventFilter(watched, event)
 
 
+_SORT_OPTIONS = [
+    ("name", "ファイル名"),
+    ("ext", "拡張子"),
+    ("size", "サイズ"),
+    ("date", "更新日時"),
+]
+
+
+class SortDialog(QDialog):
+    def __init__(self, current_mode: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ソート")
+        self._result_mode: str | None = None
+        self._result_order: Qt.SortOrder | None = None
+
+        self.list_widget = QListWidget(self)
+        initial_row = 0
+        for i, (mode, label) in enumerate(_SORT_OPTIONS):
+            self.list_widget.addItem(label)
+            if mode == current_mode:
+                initial_row = i
+        self.list_widget.setCurrentRow(initial_row)
+        self.list_widget.itemDoubleClicked.connect(self._accept_ascending)
+
+        hint = QLabel("Shift+Enter: 降順")
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.list_widget)
+        layout.addWidget(hint)
+
+        self.list_widget.setFocus()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._finish(Qt.SortOrder.DescendingOrder)
+            else:
+                self._finish(Qt.SortOrder.AscendingOrder)
+        elif key == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
+
+    def _accept_ascending(self, _item) -> None:
+        self._finish(Qt.SortOrder.AscendingOrder)
+
+    def _finish(self, order: Qt.SortOrder) -> None:
+        row = self.list_widget.currentRow()
+        if 0 <= row < len(_SORT_OPTIONS):
+            self._result_mode = _SORT_OPTIONS[row][0]
+            self._result_order = order
+            self.accept()
+
+    def result_mode(self) -> str | None:
+        return self._result_mode
+
+    def result_order(self) -> "Qt.SortOrder | None":
+        return self._result_order
+
+
 class FilterDialog(QDialog):
 	filter_changed = Signal(str)
 
@@ -361,3 +422,208 @@ class ArchiveDialog(QDialog):
 
 	def values(self) -> tuple[str, str]:
 		return self.name_edit.text().strip(), self.password_edit.text()
+
+
+class BookmarkDialog(QDialog):
+	def __init__(self, bookmarks: list[str], parent=None):
+		super().__init__(parent)
+		self.setWindowTitle("ブックマーク")
+		self.resize(760, 520)
+		self._bookmarks = [Path(b) for b in bookmarks]
+
+		self.filter_edit = QLineEdit(self)
+		self.filter_edit.setPlaceholderText("ブックマークを絞り込む（F）")
+		self.filter_edit.textChanged.connect(self._apply_filter)
+
+		self.list_widget = QListWidget(self)
+		self.list_widget.setAlternatingRowColors(True)
+		self.list_widget.setTextElideMode(Qt.TextElideMode.ElideNone)
+		self.list_widget.setHorizontalScrollBarPolicy(
+			Qt.ScrollBarPolicy.ScrollBarAsNeeded
+		)
+		self.list_widget.installEventFilter(self)
+		self.list_widget.itemDoubleClicked.connect(lambda _: self._accept_selected())
+
+		buttons = QDialogButtonBox(
+			QDialogButtonBox.StandardButton.Ok
+			| QDialogButtonBox.StandardButton.Cancel,
+			parent=self,
+		)
+		buttons.accepted.connect(self._accept_selected)
+		buttons.rejected.connect(self.reject)
+
+		layout = QVBoxLayout(self)
+		layout.addWidget(self.filter_edit)
+		layout.addWidget(self.list_widget)
+		layout.addWidget(buttons)
+		self._apply_filter("")
+		self.list_widget.setFocus()
+
+	def _apply_filter(self, query: str) -> None:
+		query = query.strip().casefold()
+		self.list_widget.clear()
+		for path in self._bookmarks:
+			if query and query not in str(path).casefold():
+				continue
+			item = QListWidgetItem(str(path))
+			item.setData(Qt.ItemDataRole.UserRole, str(path))
+			self.list_widget.addItem(item)
+		if self.list_widget.count() > 0:
+			self.list_widget.setCurrentRow(0)
+
+	def _accept_selected(self) -> None:
+		if self.list_widget.currentItem() is None:
+			return
+		self.accept()
+
+	def selected_path(self) -> Path | None:
+		item = self.list_widget.currentItem()
+		if item is None:
+			return None
+		value = item.data(Qt.ItemDataRole.UserRole)
+		return Path(value) if value else None
+
+	def eventFilter(self, watched, event) -> bool:
+		if watched is self.list_widget and event.type() == QEvent.Type.KeyPress:
+			if (
+				event.key() == Qt.Key.Key_F
+				and event.modifiers() == Qt.KeyboardModifier.NoModifier
+			):
+				self.filter_edit.setFocus()
+				self.filter_edit.selectAll()
+				return True
+		return super().eventFilter(watched, event)
+
+
+def _fmt_file_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB ({size:,} バイト)"
+    if size < 1024 ** 3:
+        return f"{size / (1024 ** 2):.1f} MB ({size:,} バイト)"
+    return f"{size / (1024 ** 3):.1f} GB ({size:,} バイト)"
+
+
+class FileInfoDialog(QDialog):
+    def __init__(self, path: Path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ファイル情報")
+        self.setMinimumWidth(480)
+
+        from datetime import datetime
+
+        form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.addRow("名前:", QLabel(path.name))
+        form.addRow("場所:", QLabel(str(path.parent)))
+
+        try:
+            st = path.stat()
+        except OSError:
+            st = None
+
+        if st is not None:
+            if path.is_file():
+                form.addRow("サイズ:", QLabel(_fmt_file_size(st.st_size)))
+            form.addRow("更新日時:", QLabel(
+                datetime.fromtimestamp(st.st_mtime).strftime("%Y/%m/%d %H:%M:%S")
+            ))
+            form.addRow("作成日時:", QLabel(
+                datetime.fromtimestamp(st.st_ctime).strftime("%Y/%m/%d %H:%M:%S")
+            ))
+            if hasattr(st, "st_file_attributes"):
+                attrs = []
+                fa = st.st_file_attributes
+                if fa & 0x01:
+                    attrs.append("読み取り専用")
+                if fa & 0x02:
+                    attrs.append("隠しファイル")
+                if fa & 0x04:
+                    attrs.append("システム")
+                if attrs:
+                    form.addRow("属性:", QLabel(", ".join(attrs)))
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, parent=self)
+        buttons.accepted.connect(self.accept)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+
+IMAGE_EXTENSIONS = {
+    ".bmp", ".gif", ".jpg", ".jpeg", ".png",
+    ".tga", ".tif", ".tiff", ".webp",
+}
+
+
+class ImageViewerDialog(QDialog):
+    def __init__(self, paths: list[Path], index: int, parent=None):
+        super().__init__(parent)
+        self._paths = paths
+        self._index = index
+        self._pixmap: QPixmap | None = None
+
+        self.setWindowTitle("画像ビューア")
+        self.resize(900, 700)
+
+        self._image_label = QLabel(self)
+        self._image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image_label.setMinimumSize(1, 1)
+        self._image_label.setStyleSheet("background: black;")
+
+        self._info_label = QLabel(self)
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(2)
+        layout.addWidget(self._image_label, 1)
+        layout.addWidget(self._info_label)
+
+        self._load_image()
+
+    def _load_image(self) -> None:
+        path = self._paths[self._index]
+        self._pixmap = QPixmap(str(path))
+        if self._pixmap.isNull():
+            self._pixmap = None
+            self._image_label.setText("読み込めませんでした")
+        else:
+            self._update_display()
+        self._info_label.setText(
+            f"{path.name}  ({self._index + 1} / {len(self._paths)})"
+        )
+        self.setWindowTitle(f"画像ビューア - {path.name}")
+
+    def _update_display(self) -> None:
+        if self._pixmap is None:
+            return
+        scaled = self._pixmap.scaled(
+            self._image_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._image_label.setPixmap(scaled)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_display()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Space):
+            self._navigate(1)
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Up):
+            self._navigate(-1)
+        elif key in (Qt.Key.Key_Escape, Qt.Key.Key_Q, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def _navigate(self, delta: int) -> None:
+        new_index = (self._index + delta) % len(self._paths)
+        if new_index != self._index:
+            self._index = new_index
+            self._load_image()

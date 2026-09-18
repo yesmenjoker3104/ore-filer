@@ -617,6 +617,29 @@ def copy_paths(
             shutil.copytree(source, target)
 
 
+def copy_paths_with_structure(
+    paths: list[Path], base_path: Path, destination: Path, *, overwrite: bool = False
+) -> None:
+    base_path = base_path.resolve()
+    destination = destination.resolve()
+
+    for source in paths:
+        try:
+            relative = source.relative_to(base_path)
+        except ValueError:
+            relative = Path(source.name)
+        target = destination / relative
+        if target.exists():
+            if not overwrite:
+                raise FileExistsError(target)
+            _remove_existing(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_file():
+            shutil.copy2(source, target)
+        elif source.is_dir():
+            shutil.copytree(source, target)
+
+
 def delete_paths(paths: list[Path]) -> None:
     for path in paths:
         if path.is_dir():

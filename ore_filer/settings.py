@@ -52,3 +52,29 @@ def save_session(history: list[Path]) -> None:
 	with temporary_path.open("w", encoding="utf-8") as file:
 		json.dump(data, file, ensure_ascii=False, indent=2)
 	temporary_path.replace(path)
+
+
+def _bookmark_file() -> Path:
+	appdata = os.environ.get("APPDATA")
+	base = Path(appdata) if appdata else Path.home() / ".config"
+	return base / "ore-filer" / "bookmarks.json"
+
+
+def load_bookmarks() -> list[str]:
+	try:
+		with _bookmark_file().open("r", encoding="utf-8") as f:
+			data = json.load(f)
+		if isinstance(data, list):
+			return [item for item in data if isinstance(item, str)]
+	except (OSError, ValueError, TypeError):
+		pass
+	return []
+
+
+def save_bookmarks(bookmarks: list[str]) -> None:
+	path = _bookmark_file()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp = path.with_suffix(".tmp")
+	with tmp.open("w", encoding="utf-8") as f:
+		json.dump(bookmarks, f, ensure_ascii=False, indent=2)
+	tmp.replace(path)

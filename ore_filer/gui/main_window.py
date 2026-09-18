@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QThread, Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
 	QDialog,
     QMainWindow,
@@ -12,16 +13,23 @@ from PySide6.QtWidgets import (
 
 from ore_filer.gui.dialogs import (
 	ArchiveDialog,
+	BookmarkDialog,
+	FileInfoDialog,
 	FilterDialog,
 	HistoryDialog,
+	IMAGE_EXTENSIONS,
+	ImageViewerDialog,
 	SearchDialog,
+	SortDialog,
 )
+from ore_filer.gui.context_menu import show_shell_context_menu
 from ore_filer.gui.pane import PaneWidget
-from ore_filer.settings import save_session
+from ore_filer.settings import load_bookmarks, save_bookmarks, save_session
 from ore_filer.services.file_operations import (
 	ArchiveEntry,
 	ArchivePasswordError,
 	copy_paths,
+	copy_paths_with_structure,
 	copy_archive_entries,
 	create_directory,
 	delete_paths,
@@ -133,6 +141,16 @@ class ExtractArchiveThread(QThread):
 			self.completed.emit(extracted_count, "\n".join(errors))
 
 
+def _fmt_size(size: int) -> str:
+	if size < 1024:
+		return f"{size} B"
+	if size < 1024 * 1024:
+		return f"{size / 1024:.1f} KB"
+	if size < 1024 ** 3:
+		return f"{size / (1024 ** 2):.1f} MB"
+	return f"{size / (1024 ** 3):.1f} GB"
+
+
 class MainWindow(QMainWindow):
 	def __init__(
 		self,
@@ -150,17 +168,25 @@ class MainWindow(QMainWindow):
 		self.panes = [self.left_pane, self.right_pane]
 		self.active_pane_index = 0
 		self._archive_thread: QThread | None = None
+		self._pending_g = False
 
-		splitter = QSplitter(Qt.Orientation.Horizontal)
-		splitter.addWidget(self.left_pane)
-		splitter.addWidget(self.right_pane)
-		splitter.setSizes([600, 600])
+		self.splitter = QSplitter(Qt.Orientation.Horizontal)
+		self.splitter.addWidget(self.left_pane)
+		self.splitter.addWidget(self.right_pane)
+		self.splitter.setSizes([600, 600])
 
-		self.setCentralWidget(splitter)
+		self.setCentralWidget(self.splitter)
 
 		for pane in self.panes:
 			pane.file_view.installEventFilter(self)
 			pane.file_view.viewport().installEventFilter(self)
+
+		self._bookmarks: list[str] = load_bookmarks()
+		self._bookmark_set: set[str] = {b.casefold() for b in self._bookmarks}
+		for pane in self.panes:
+			pane.bookmarks = self._bookmark_set
+			pane.selection_changed.connect(self._update_status_bar)
+			pane.path_changed.connect(self._update_status_bar)
 
 		self._update_active_pane()
 
@@ -197,6 +223,41 @@ class MainWindow(QMainWindow):
 			if selected is not None:
 				self.active_pane.navigate_to(selected)
 
+	def _toggle_bookmark(self) -> None:
+		path = self.focused_path()
+		if path is None:
+			return
+		key = str(path).casefold()
+		if key in self._bookmark_set:
+			self._bookmark_set.discard(key)
+			self._bookmarks = [b for b in self._bookmarks if b.casefold() != key]
+		else:
+			self._bookmark_set.add(key)
+			self._bookmarks.insert(0, str(path))
+		save_bookmarks(self._bookmarks)
+		for pane in self.panes:
+			pane.file_view.viewport().update()
+
+	def _show_bookmark_list(self, local: bool) -> None:
+		if local:
+			prefix = str(self.active_pane.current_path).casefold()
+			items = [b for b in self._bookmarks if b.casefold().startswith(prefix)]
+		else:
+			items = list(self._bookmarks)
+		if not items:
+			return
+		dialog = BookmarkDialog(items, self)
+		if dialog.exec() != QDialog.DialogCode.Accepted:
+			return
+		selected = dialog.selected_path()
+		if selected is None:
+			return
+		if selected.is_file():
+			self.active_pane.navigate_to(selected.parent)
+			self.active_pane.focus_name(selected.name)
+		elif selected.is_dir():
+			self.active_pane.navigate_to(selected)
+
 	def search_files(self) -> None:
 		if self.active_pane.is_archive_view():
 			return
@@ -207,6 +268,17 @@ class MainWindow(QMainWindow):
 		results = dialog.result_paths()
 		if results:
 			self.active_pane.show_search_results(results)
+
+	def sort_files(self) -> None:
+		if self.active_pane.is_archive_view():
+			return
+		dialog = SortDialog(self.active_pane.sort_mode(), self)
+		if dialog.exec() != QDialog.DialogCode.Accepted:
+			return
+		mode = dialog.result_mode()
+		order = dialog.result_order()
+		if mode is not None and order is not None:
+			self.active_pane.set_sort(mode, order)
 
 	def execute_associated(self) -> None:
 		paths = self.active_pane.selected_paths()
@@ -276,7 +348,31 @@ class MainWindow(QMainWindow):
 		elif is_archive_path(path):
 			self.open_archive(path)
 			return True
+		elif path.suffix.casefold() in IMAGE_EXTENSIONS:
+			self._open_image_viewer(path)
+			return True
+		import tempfile, os
+		with open(os.path.join(tempfile.gettempdir(), "ore_filer_debug.txt"), "a") as _f:
+			_f.write(f"enter: path={path} suffix={path.suffix.casefold()!r} in_ext={path.suffix.casefold() in IMAGE_EXTENSIONS}\n")
 		return False
+
+	def _open_image_viewer(self, path: Path) -> None:
+		try:
+			parent = path.parent
+			images = sorted(
+				[p for p in parent.iterdir() if p.is_file() and p.suffix.casefold() in IMAGE_EXTENSIONS],
+				key=lambda p: p.name.casefold(),
+			)
+			if not images:
+				return
+			try:
+				index = next(i for i, p in enumerate(images) if p.name.casefold() == path.name.casefold())
+			except StopIteration:
+				index = 0
+			dialog = ImageViewerDialog(images, index, self)
+			dialog.exec()
+		except Exception as error:
+			QMessageBox.critical(self, "画像ビューア エラー", str(error))
 
 	def create_archive(self) -> None:
 		if self._archive_thread is not None and self._archive_thread.isRunning():
@@ -462,6 +558,31 @@ class MainWindow(QMainWindow):
 		)
 		return confirm == QMessageBox.StandardButton.Yes
 
+	def _confirm_overwrite_structured(
+		self, paths: list[Path], base_path: Path, destination: Path
+	) -> bool:
+		existing = []
+		for path in paths:
+			try:
+				relative = path.relative_to(base_path)
+			except ValueError:
+				relative = Path(path.name)
+			target = destination / relative
+			if target.exists():
+				existing.append(target)
+		if not existing:
+			return True
+
+		names = "\n".join(str(p.relative_to(destination)) for p in existing)
+		confirm = QMessageBox.question(
+			self,
+			"上書き確認",
+			f"次の項目は既に存在します。上書きしますか？\n\n{names}",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		return confirm == QMessageBox.StandardButton.Yes
+
 	def copy_selected(self) -> None:
 		if self.active_pane.is_archive_view():
 			self.copy_selected_archive_entries()
@@ -488,14 +609,31 @@ class MainWindow(QMainWindow):
 			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
 		)
 
-		if confirm == QMessageBox.StandardButton.Yes:
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+
+		use_structure = False
+		if self.active_pane.has_search_results() or self.active_pane.has_filter():
+			structure_confirm = QMessageBox.question(
+				self,
+				"フォルダ構成の維持",
+				"フォルダ構成を維持しますか？",
+				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			)
+			use_structure = structure_confirm == QMessageBox.StandardButton.Yes
+
+		if use_structure:
+			base_path = self.active_pane.current_path
+			if not self._confirm_overwrite_structured(source, base_path, destination):
+				return
+			copy_paths_with_structure(source, base_path, destination, overwrite=True)
+		else:
 			if not self.confirm_overwrite(source, destination):
 				return
 			copy_paths(source, destination, overwrite=True)
-			self.active_pane.file_view.selectionModel().clearSelection()
-			self.inactive_pane.reload()
-		else:
-			return
+
+		self.active_pane.file_view.selectionModel().clearSelection()
+		self.inactive_pane.reload()
 
 	def copy_selected_archive_entries(self) -> None:
 		if self._archive_thread is not None and self._archive_thread.isRunning():
@@ -693,21 +831,37 @@ class MainWindow(QMainWindow):
 
 	def eventFilter(self, watched, event) -> bool:
 		if event.type() == QEvent.Type.KeyPress:
+			_mods = event.modifiers()
+			_key = event.key()
+			_arrow = _key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right)
+			if _arrow and _mods == (Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier):
+				self._resize_window(_key)
+				return True
+			if _arrow and _mods == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
+				self._move_window(_key)
+				return True
+			if _mods == Qt.KeyboardModifier.AltModifier and _key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+				self._move_splitter(-1 if _key == Qt.Key.Key_Left else 1)
+				return True
+			if event.text() == "=":
+				self._center_splitter()
+				return True
+			no_mod = _mods == Qt.KeyboardModifier.NoModifier
 			if (event.key() == Qt.Key.Key_Tab) or \
-				(event.key() == Qt.Key.Key_Right and self.active_pane_index == 0) or \
-				(event.key() == Qt.Key.Key_Left and self.active_pane_index == 1):
+				(event.key() == Qt.Key.Key_Right and self.active_pane_index == 0 and no_mod) or \
+				(event.key() == Qt.Key.Key_Left and self.active_pane_index == 1 and no_mod):
 				self._switch_pane()
 				return True
-			
+
 			elif event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
 				if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
 					self.execute_associated()
 					return True
-				if event.modifiers() == Qt.KeyboardModifier.NoModifier:
+				if no_mod:
 					return self.enter_current_item()
-				
-			elif (event.key() == Qt.Key.Key_Left and self.active_pane_index == 0) or \
-				(event.key() == Qt.Key.Key_Right and self.active_pane_index == 1):
+
+			elif (event.key() == Qt.Key.Key_Left and self.active_pane_index == 0 and no_mod) or \
+				(event.key() == Qt.Key.Key_Right and self.active_pane_index == 1 and no_mod):
 				self.active_pane.go_to_parent()
 				return True
 			
@@ -726,10 +880,46 @@ class MainWindow(QMainWindow):
 				self.active_pane.reload()
 				return True
 			elif event.key() == Qt.Key.Key_C:
-				self.copy_selected()
-				return True
+				if _mods == Qt.KeyboardModifier.ControlModifier:
+					self._copy_names_to_clipboard()
+					return True
+				if _mods == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+					self._copy_paths_to_clipboard()
+					return True
+				if _mods == Qt.KeyboardModifier.NoModifier:
+					self.copy_selected()
+					return True
 			elif event.key() == Qt.Key.Key_Space:
+				if _mods == Qt.KeyboardModifier.ShiftModifier:
+					self.active_pane.select_current_and_move_up()
+					return True
+				if _mods == Qt.KeyboardModifier.ControlModifier:
+					self.active_pane.range_select()
+					return True
 				self.active_pane.select_current_and_move_down()
+				return True
+			elif event.key() == Qt.Key.Key_Backslash and no_mod:
+				self._show_context_menu()
+				return True
+			elif event.key() == Qt.Key.Key_I and no_mod:
+				self._show_file_info()
+				return True
+			elif event.key() == Qt.Key.Key_End and no_mod:
+				self.active_pane.deselect_all()
+				return True
+			elif event.key() == Qt.Key.Key_A and no_mod:
+				self.active_pane.select_all_files()
+				return True
+			elif event.key() == Qt.Key.Key_Home and no_mod:
+				self.active_pane.select_all_files()
+				return True
+			elif event.key() == Qt.Key.Key_A and \
+				_mods == Qt.KeyboardModifier.ShiftModifier:
+				self.active_pane.select_all_items()
+				return True
+			elif event.key() == Qt.Key.Key_Home and \
+				_mods == Qt.KeyboardModifier.ShiftModifier:
+				self.active_pane.select_all_items()
 				return True
 			elif event.key() == Qt.Key.Key_M:
 				if self.active_pane.selected_paths():
@@ -743,6 +933,16 @@ class MainWindow(QMainWindow):
 			elif event.key() == Qt.Key.Key_H:
 				self.show_history()
 				return True
+			elif event.key() == Qt.Key.Key_B:
+				if _mods == Qt.KeyboardModifier.ControlModifier:
+					self._toggle_bookmark()
+					return True
+				if no_mod:
+					self._show_bookmark_list(local=True)
+					return True
+				if _mods == Qt.KeyboardModifier.ShiftModifier:
+					self._show_bookmark_list(local=False)
+					return True
 			elif event.key() == Qt.Key.Key_Escape and \
 				event.modifiers() == Qt.KeyboardModifier.NoModifier:
 				if self.active_pane.has_search_results():
@@ -782,7 +982,96 @@ class MainWindow(QMainWindow):
 			elif event.key() == Qt.Key.Key_K:
 				self.delete_selected()
 				return True
+			elif event.key() == Qt.Key.Key_S and \
+				event.modifiers() == Qt.KeyboardModifier.NoModifier:
+				self.sort_files()
+				return True
+			elif event.text() == "~":
+				self.active_pane.navigate_to(Path.home())
+				return True
+			elif event.key() == Qt.Key.Key_G and \
+				event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+				self._pending_g = False
+				self.active_pane.go_to_last_item()
+				return True
+			elif event.key() == Qt.Key.Key_G and \
+				event.modifiers() == Qt.KeyboardModifier.NoModifier:
+				if self._pending_g:
+					self._pending_g = False
+					self.active_pane.go_to_first_item()
+				else:
+					self._pending_g = True
+				return True
+			if self._pending_g:
+				self._pending_g = False
 		return super().eventFilter(watched, event)
+
+	_RESIZE_STEP = 50
+	_SPLITTER_STEP = 50
+
+	def _move_splitter(self, direction: int) -> None:
+		sizes = self.splitter.sizes()
+		if len(sizes) != 2:
+			return
+		total = sizes[0] + sizes[1]
+		left = max(0, min(total, sizes[0] + direction * self._SPLITTER_STEP))
+		self.splitter.setSizes([left, total - left])
+
+	def _center_splitter(self) -> None:
+		sizes = self.splitter.sizes()
+		if len(sizes) != 2:
+			return
+		total = sizes[0] + sizes[1]
+		half = total // 2
+		self.splitter.setSizes([half, total - half])
+
+	def _move_window(self, key: Qt.Key) -> None:
+		step = self._RESIZE_STEP
+		pos = self.pos()
+		x, y = pos.x(), pos.y()
+		if key == Qt.Key.Key_Left:
+			x -= step
+		elif key == Qt.Key.Key_Right:
+			x += step
+		elif key == Qt.Key.Key_Up:
+			y -= step
+		elif key == Qt.Key.Key_Down:
+			y += step
+		self.move(x, y)
+
+	def _resize_window(self, key: Qt.Key) -> None:
+		geo = self.geometry()
+		x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
+		min_w = max(self.minimumWidth(), 200)
+		min_h = max(self.minimumHeight(), 150)
+		step = self._RESIZE_STEP
+		if key == Qt.Key.Key_Right:
+			w = max(min_w, w + step)
+		elif key == Qt.Key.Key_Left:
+			w = max(min_w, w - step)
+		elif key == Qt.Key.Key_Down:
+			h = max(min_h, h + step)
+		elif key == Qt.Key.Key_Up:
+			h = max(min_h, h - step)
+		self.setGeometry(x, y, w, h)
+
+	def _clipboard_paths(self) -> list[Path]:
+		paths = self.active_pane.selected_paths()
+		if not paths:
+			focused = self.focused_path()
+			if focused:
+				paths = [focused]
+		return paths
+
+	def _copy_names_to_clipboard(self) -> None:
+		paths = self._clipboard_paths()
+		if paths:
+			QGuiApplication.clipboard().setText("\n".join(p.name for p in paths))
+
+	def _copy_paths_to_clipboard(self) -> None:
+		paths = self._clipboard_paths()
+		if paths:
+			QGuiApplication.clipboard().setText("\n".join(str(p) for p in paths))
 
 	def _switch_pane(self) -> None:
 		self.active_pane_index = 1 - self.active_pane_index
@@ -796,3 +1085,30 @@ class MainWindow(QMainWindow):
 			pane.file_view.viewport().update()
 		active_pane.setStyleSheet("border: 1px solid #4b6584;")
 		active_pane.file_view.setFocus()
+		self._update_status_bar()
+
+	def _update_status_bar(self) -> None:
+		pane = self.active_pane
+		sel = pane.selected_count()
+		if sel > 0:
+			size = pane.selected_total_size()
+			self.statusBar().showMessage(f"選択: {sel}件 / {_fmt_size(size)}")
+		else:
+			n = pane.visible_item_count()
+			self.statusBar().showMessage(f"{n}件")
+
+	def _show_context_menu(self) -> None:
+		paths = self.active_pane.selected_paths()
+		if not paths:
+			path = self.focused_path()
+			if path is None:
+				return
+			paths = [path]
+		show_shell_context_menu(paths, int(self.winId()))
+
+	def _show_file_info(self) -> None:
+		path = self.focused_path()
+		if path is None:
+			return
+		FileInfoDialog(path, self).exec()
+
