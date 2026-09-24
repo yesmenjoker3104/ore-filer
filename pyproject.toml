@@ -18,4 +18,4 @@ dependencies = [
 include = ["ore_filer*"]
 
 [tool.setuptools.package-data]
-ore_filer = ["icon.jpg"]
+ore_filer = ["icon.jpg", "icon.ico"]
