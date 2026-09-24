@@ -32,7 +32,7 @@ def _session_start_path(history: list[str]) -> Path:
 def main() -> int:
     _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
-    icon = QIcon(str(Path(__file__).with_name("icon.jpg")))
+    icon = QIcon(str(Path(__file__).with_name("icon.ico")))
     app.setWindowIcon(icon)
     session = load_session()
     history = session["history"]

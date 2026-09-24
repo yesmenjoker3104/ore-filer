@@ -38,7 +38,7 @@ jobs:
           --windowed
           --name ore-filer
           --icon "ore_filer/icon.ico"
-          --add-data "ore_filer/icon.jpg;ore_filer"
+          --add-data "ore_filer/icon.ico;ore_filer"
           ore_filer/app.py
 
       - name: Upload executable
