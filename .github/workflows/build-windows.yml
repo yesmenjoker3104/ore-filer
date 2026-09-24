@@ -24,10 +24,13 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip; python -m pip install . pyinstaller
+        run: python -m pip install --upgrade pip; python -m pip install . pyinstaller pillow
 
       - name: Check Python sources
         run: python -m compileall -q ore_filer
+
+      - name: Prepare executable icon
+        run: python -c "from PIL import Image; Image.open('ore_filer/icon.jpg').save('ore_filer/icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (32, 32), (16, 16)])"
 
       - name: Build executable
         run: >-
@@ -37,6 +40,7 @@ jobs:
           --onefile
           --windowed
           --name ore-filer
+          --icon "ore_filer/icon.ico"
           --add-data "ore_filer/icon.jpg;ore_filer"
           ore_filer/app.py
 
