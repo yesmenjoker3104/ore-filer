@@ -1,8 +1,3 @@
-
-
-import json
-import json
-import json
 import json
 import os
 from pathlib import Path
@@ -18,16 +13,16 @@ def session_file() -> Path:
 	return base / "ore-filer" / "session.json"
 
 
-def load_session() -> dict[str, list[str]]:
-	empty_session = {"history": []}
+def load_session() -> dict:
+	empty: dict = {"history": [], "geometry": "", "splitter": ""}
 	try:
 		with session_file().open("r", encoding="utf-8") as file:
 			data: Any = json.load(file)
 	except (OSError, ValueError, TypeError):
-		return empty_session
+		return empty
 
 	if not isinstance(data, dict):
-		return empty_session
+		return empty
 
 	values = data.get("history", [])
 	if not isinstance(values, list):
@@ -39,14 +34,35 @@ def load_session() -> dict[str, list[str]]:
 			(left_values if isinstance(left_values, list) else [])
 			+ (right_values if isinstance(right_values, list) else [])
 		)
-	return {"history": [value for value in values if isinstance(value, str)][:MAX_HISTORY]}
+	def _str(key: str) -> str:
+		v = data.get(key, "")
+		return v if isinstance(v, str) else ""
+
+	return {
+		"history": [value for value in values if isinstance(value, str)][:MAX_HISTORY],
+		"left_path": _str("left_path"),
+		"right_path": _str("right_path"),
+		"geometry": _str("geometry"),
+		"splitter": _str("splitter"),
+	}
 
 
-def save_session(history: list[Path]) -> None:
+def save_session(
+	history: list[Path],
+	*,
+	left_path: str = "",
+	right_path: str = "",
+	geometry: str = "",
+	splitter: str = "",
+) -> None:
 	path = session_file()
 	path.parent.mkdir(parents=True, exist_ok=True)
 	data = {
 		"history": [str(item) for item in history[:MAX_HISTORY]],
+		"left_path": left_path,
+		"right_path": right_path,
+		"geometry": geometry,
+		"splitter": splitter,
 	}
 	temporary_path = path.with_suffix(".tmp")
 	with temporary_path.open("w", encoding="utf-8") as file:

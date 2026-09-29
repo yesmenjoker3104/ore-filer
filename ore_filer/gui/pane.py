@@ -5,6 +5,7 @@ from PySide6.QtCore import (
     QFileInfo,
     QItemSelectionModel,
     QModelIndex,
+    QSize,
     QSortFilterProxyModel,
     QTimer,
     Qt,
@@ -81,6 +82,37 @@ class FileTreeView(QTreeView):
 
         rect = self.visualRect(index)
         self.viewport().update(0, rect.top(), self.viewport().width(), rect.height())
+
+
+class ElidedLabel(QLabel):
+    """幅に収まらない場合に中央を「...」で省略するラベル。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self.update()
+
+    def minimumSizeHint(self) -> QSize:
+        h = super().minimumSizeHint().height()
+        return QSize(0, h)
+
+    def sizeHint(self) -> QSize:
+        h = super().sizeHint().height()
+        return QSize(0, h)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        fm = painter.fontMetrics()
+        elided = fm.elidedText(self._full_text, Qt.TextElideMode.ElideMiddle, self.width())
+        painter.drawText(
+            self.rect(),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            elided,
+        )
 
 
 SORT_NAME = "name"
@@ -234,10 +266,11 @@ class PaneWidget(QWidget):
             initial_path.resolve() if initial_path.is_dir() else Path.home()
         )
         self._history = self._build_history(self.current_path, history)
-        self.path_label = QLabel()
+        self.path_label = ElidedLabel()
 
         self.model = QFileSystemModel(self)
         self.model.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot | QDir.Hidden)
+        self.model.directoryLoaded.connect(self._on_directory_loaded)
         self.filter_model = FileFilterProxyModel(self)
         self.filter_model.setSourceModel(self.model)
         self.search_model = QStandardItemModel(self)
@@ -254,6 +287,8 @@ class PaneWidget(QWidget):
         self._sort_order = Qt.SortOrder.AscendingOrder
         self.bookmarks: set[str] = set()
         self._select_anchor: int | None = None
+        self._cursor_memory: dict[Path, str] = {}
+        self._pending_focus: str | None = None
 
         self.file_view = FileTreeView()
         self.file_view.setModel(self.filter_model)
@@ -292,11 +327,25 @@ class PaneWidget(QWidget):
             return history
         return paths[:200]
 
-    def navigate_to(self, path: str | Path, *, record_history: bool = True) -> None:
+    def navigate_to(
+        self,
+        path: str | Path,
+        *,
+        record_history: bool = True,
+        focus_name: str | None = None,
+    ) -> None:
         path = Path(path).resolve()
         if not path.is_dir():
             return
         self._select_anchor = None
+
+        # 移動前のカーソル位置を記憶
+        if not self.is_archive_view() and self._search_results is None:
+            idx = self.file_view.currentIndex()
+            cur = self.path_from_index(idx)
+            if cur is not None:
+                self._cursor_memory[self.current_path] = cur.name
+
         self._leave_archive_view()
         self.clear_search_results()
         self.clear_filter()
@@ -307,6 +356,9 @@ class PaneWidget(QWidget):
 
         self.current_path = path
         self._update_path_label()
+
+        # フォーカス目標: 明示指定 > 記憶 > 先頭（""で先頭を表す）
+        self._pending_focus = focus_name or self._cursor_memory.get(path) or ""
 
         # root index をクリアしてから root path を変更することで、
         # QFileSystemModel の再構築中に古い persistent index が
@@ -321,25 +373,13 @@ class PaneWidget(QWidget):
         self.file_view.selectionModel().clearSelection()
         self.path_changed.emit(str(path))
 
-    def focus_name(self, name: str) -> None:
-        name_lower = name.casefold()
-        if self._try_focus_name_now(name_lower):
-            return
-        QTimer.singleShot(300, lambda: self._try_focus_name_now(name_lower))
+        self._apply_pending_focus()
 
-    def _try_focus_name_now(self, name_lower: str) -> bool:
-        root = self.file_view.rootIndex()
-        model = self.file_view.model()
-        if model is None:
-            return False
-        for row in range(model.rowCount(root)):
-            index = model.index(row, 0, root)
-            path = self.path_from_index(index)
-            if path and path.name.casefold() == name_lower:
-                self.file_view.setCurrentIndex(index)
-                self.file_view.scrollTo(index)
-                return True
-        return False
+    def focus_name(self, name: str) -> None:
+        self._pending_focus = name
+        self._apply_pending_focus()
+        if self._pending_focus is not None:
+            QTimer.singleShot(300, self._apply_pending_focus)
 
     def _update_path_label(self) -> None:
         labels = {SORT_NAME: "名前", SORT_EXT: "拡張子", SORT_SIZE: "サイズ", SORT_DATE: "日時"}
@@ -658,15 +698,12 @@ class PaneWidget(QWidget):
 
             archive_path = self._archive_path
             self._leave_archive_view()
-            self.navigate_to(archive_path.parent)
-            archive_index = self.index_for_path(archive_path)
-            if archive_index.isValid():
-                self.file_view.setCurrentIndex(archive_index)
+            self.navigate_to(archive_path.parent, focus_name=archive_path.name)
             return
 
         parent_path = self.current_path.parent
         if parent_path != self.current_path:
-            self.navigate_to(parent_path)
+            self.navigate_to(parent_path, focus_name=self.current_path.name)
 
     def go_to_first_item(self) -> None:
         root = self.file_view.rootIndex()
@@ -825,6 +862,41 @@ class PaneWidget(QWidget):
                             QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
                         )
         self.file_view.viewport().update()
+
+    def _apply_pending_focus(self) -> None:
+        if self._pending_focus is None:
+            return
+        root = self.file_view.rootIndex()
+        model = self.file_view.model()
+        if model is None or model.rowCount(root) == 0:
+            return  # directoryLoaded で再試行
+
+        target = self._pending_focus
+        self._pending_focus = None
+
+        if target:
+            target_lower = target.casefold()
+            for row in range(model.rowCount(root)):
+                index = model.index(row, 0, root)
+                path = self.path_from_index(index)
+                if path and path.name.casefold() == target_lower:
+                    self.file_view.setCurrentIndex(index)
+                    self.file_view.scrollTo(index)
+                    return
+
+        first = model.index(0, 0, root)
+        if first.isValid():
+            self.file_view.setCurrentIndex(first)
+            self.file_view.scrollTo(first)
+
+    def _on_directory_loaded(self, loaded_path: str) -> None:
+        if self._pending_focus is None:
+            return
+        try:
+            if Path(loaded_path).resolve() == self.current_path:
+                self._apply_pending_focus()
+        except Exception:
+            pass
 
     def _reconnect_selection_signal(self) -> None:
         sm = self.file_view.selectionModel()

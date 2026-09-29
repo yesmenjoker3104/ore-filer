@@ -37,12 +37,15 @@ def main() -> int:
     session = load_session()
     history = session["history"]
     start_path = _session_start_path(history)
+    left_path = Path(session["left_path"]).resolve() if session.get("left_path") and Path(session["left_path"]).is_dir() else start_path
+    right_path = Path(session["right_path"]).resolve() if session.get("right_path") and Path(session["right_path"]).is_dir() else start_path
     window = MainWindow(
-        start_path,
-        start_path,
+        left_path,
+        right_path,
         history=history,
     )
     window.setWindowIcon(icon)
+    window.restore_window_state(session.get("geometry", ""), session.get("splitter", ""))
     window.show()
     return app.exec()
 

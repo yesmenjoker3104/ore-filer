@@ -648,6 +648,13 @@ def delete_paths(paths: list[Path]) -> None:
             path.unlink()
 
 
+def trash_paths(paths: list[Path]) -> None:
+    from PySide6.QtCore import QFile
+    for path in paths:
+        if not QFile.moveToTrash(str(path)):
+            raise OSError(f"ごみ箱への移動に失敗しました: {path}")
+
+
 def create_directory(parent: Path, name: str) -> Path:
     directory = parent / name
     directory.mkdir()

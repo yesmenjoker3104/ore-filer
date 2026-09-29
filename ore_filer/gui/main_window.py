@@ -1,11 +1,13 @@
+import base64
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QThread, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
 	QDialog,
-    QMainWindow,
-    QSplitter,
+	QMainWindow,
+	QSplitter,
 	QMessageBox,
 	QInputDialog,
 	QLineEdit,
@@ -33,6 +35,7 @@ from ore_filer.services.file_operations import (
 	copy_archive_entries,
 	create_directory,
 	delete_paths,
+	trash_paths,
 	is_archive_path,
 	rename_path,
 	move_paths,
@@ -40,6 +43,23 @@ from ore_filer.services.file_operations import (
 	create_archive,
 	extract_archive,
 )
+
+
+class FileOperationThread(QThread):
+	completed = Signal()
+	failed = Signal(str)
+
+	def __init__(self, func: Callable[[], None], parent=None):
+		super().__init__(parent)
+		self._func = func
+
+	def run(self) -> None:
+		try:
+			self._func()
+		except Exception as error:
+			self.failed.emit(str(error))
+		else:
+			self.completed.emit()
 
 
 class ArchiveThread(QThread):
@@ -168,6 +188,7 @@ class MainWindow(QMainWindow):
 		self.panes = [self.left_pane, self.right_pane]
 		self.active_pane_index = 0
 		self._archive_thread: QThread | None = None
+		self._file_op_thread: FileOperationThread | None = None
 		self._pending_g = False
 
 		self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -209,8 +230,28 @@ class MainWindow(QMainWindow):
 		self.inactive_pane.navigate_to(self.active_pane.current_path)
 
 	def closeEvent(self, event) -> None:
-		save_session(self.left_pane.history_paths())
+		geometry = base64.b64encode(bytes(self.saveGeometry())).decode()
+		splitter = base64.b64encode(bytes(self.splitter.saveState())).decode()
+		save_session(
+			self.left_pane.history_paths(),
+			left_path=str(self.left_pane.current_path),
+			right_path=str(self.right_pane.current_path),
+			geometry=geometry,
+			splitter=splitter,
+		)
 		super().closeEvent(event)
+
+	def restore_window_state(self, geometry: str, splitter: str) -> None:
+		if geometry:
+			try:
+				self.restoreGeometry(base64.b64decode(geometry))
+			except Exception:
+				pass
+		if splitter:
+			try:
+				self.splitter.restoreState(base64.b64decode(splitter))
+			except Exception:
+				pass
 
 	def show_history(self) -> None:
 		history = self.active_pane.history_paths()
@@ -626,14 +667,21 @@ class MainWindow(QMainWindow):
 			base_path = self.active_pane.current_path
 			if not self._confirm_overwrite_structured(source, base_path, destination):
 				return
-			copy_paths_with_structure(source, base_path, destination, overwrite=True)
+			self._start_file_operation(
+				lambda s=source, b=base_path, d=destination:
+					copy_paths_with_structure(s, b, d, overwrite=True),
+				"コピーしています...",
+				f"{len(source)}件をコピーしました。",
+			)
 		else:
 			if not self.confirm_overwrite(source, destination):
 				return
-			copy_paths(source, destination, overwrite=True)
-
-		self.active_pane.file_view.selectionModel().clearSelection()
-		self.inactive_pane.reload()
+			self._start_file_operation(
+				lambda s=source, d=destination:
+					copy_paths(s, d, overwrite=True),
+				"コピーしています...",
+				f"{len(source)}件をコピーしました。",
+			)
 
 	def copy_selected_archive_entries(self) -> None:
 		if self._archive_thread is not None and self._archive_thread.isRunning():
@@ -790,21 +838,39 @@ class MainWindow(QMainWindow):
 		confirm = QMessageBox.question(
 			self,
 			"削除確認",
-			f"次の項目を削除しますか？\n\n{chr(10).join(path.name for path in paths)}",
+			f"次の項目を完全削除しますか？\n\n{chr(10).join(path.name for path in paths)}",
 			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
 			QMessageBox.StandardButton.No,
 		)
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
 
-		try:
-			delete_paths(paths)
-		except OSError as error:
-			QMessageBox.critical(self, "削除エラー", str(error))
+		self._start_file_operation(
+			lambda p=paths: delete_paths(p),
+			"削除しています...",
+			f"{len(paths)}件を削除しました。",
+		)
+
+	def trash_selected(self) -> None:
+		paths = self.active_pane.selected_paths()
+		if not paths:
 			return
 
-		self.active_pane.file_view.selectionModel().clearSelection()
-		self.active_pane.reload()
+		confirm = QMessageBox.question(
+			self,
+			"ごみ箱への移動",
+			f"次の項目をごみ箱へ移動しますか？\n\n{chr(10).join(path.name for path in paths)}",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+
+		self._start_file_operation(
+			lambda p=paths: trash_paths(p),
+			"ごみ箱へ移動しています...",
+			f"{len(paths)}件をごみ箱へ移動しました。",
+		)
 
 	def move_selected(self) -> None:
 		paths = self.active_pane.selected_paths()
@@ -812,22 +878,60 @@ class MainWindow(QMainWindow):
 			return
 
 		destination = self.inactive_pane.current_path
+		names = "\n".join(path.name for path in paths)
+		confirm = QMessageBox.question(
+			self,
+			"ファイル移動確認",
+			f"次の項目を移動しますか？\n\n{destination}\n\n{names}",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+
 		if not self.confirm_overwrite(paths, destination):
 			return
 
-		try:
-			move_paths(paths, destination, overwrite=True)
-		except Exception as error:
-			QMessageBox.critical(
-				self,
-				"エラー",
-				f"移動に失敗しました:\n{error}"
-			)
-			return
+		self._start_file_operation(
+			lambda p=paths, d=destination: move_paths(p, d, overwrite=True),
+			"移動しています...",
+			f"{len(paths)}件を移動しました。",
+		)
 
-		self.active_pane.file_view.selectionModel().clearSelection()
-		self.active_pane.reload()
-		self.inactive_pane.reload()
+	def _start_file_operation(
+		self,
+		func: Callable[[], None],
+		busy_message: str,
+		done_message: str,
+	) -> None:
+		if (self._file_op_thread is not None and self._file_op_thread.isRunning()) or \
+		   (self._archive_thread is not None and self._archive_thread.isRunning()):
+			return
+		self.statusBar().showMessage(busy_message)
+		thread = FileOperationThread(func, self)
+		thread.completed.connect(lambda msg=done_message: self._file_op_completed(msg))
+		thread.failed.connect(self._file_op_failed)
+		thread.finished.connect(self._file_op_thread_finished)
+		self._file_op_thread = thread
+		thread.start()
+
+	def _file_op_completed(self, message: str) -> None:
+		self.left_pane.reload()
+		self.right_pane.reload()
+		self.statusBar().showMessage(message, 5000)
+
+	def _file_op_failed(self, message: str) -> None:
+		self.left_pane.reload()
+		self.right_pane.reload()
+		self.statusBar().clearMessage()
+		QMessageBox.critical(self, "操作エラー", message)
+
+	def _file_op_thread_finished(self) -> None:
+		thread = self.sender()
+		if thread is self._file_op_thread:
+			self._file_op_thread = None
+		if isinstance(thread, QThread):
+			thread.deleteLater()
 
 	def eventFilter(self, watched, event) -> bool:
 		if event.type() == QEvent.Type.KeyPress:
@@ -854,7 +958,7 @@ class MainWindow(QMainWindow):
 				return True
 
 			elif event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return):
-				if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+				if _mods == Qt.KeyboardModifier.ControlModifier:
 					self.execute_associated()
 					return True
 				if no_mod:
@@ -904,9 +1008,13 @@ class MainWindow(QMainWindow):
 			elif event.key() == Qt.Key.Key_I and no_mod:
 				self._show_file_info()
 				return True
-			elif event.key() == Qt.Key.Key_End and no_mod:
-				self.active_pane.deselect_all()
-				return True
+			elif event.key() == Qt.Key.Key_End:
+				if no_mod:
+					self.active_pane.deselect_all()
+					return True
+				if _mods == Qt.KeyboardModifier.ShiftModifier:
+					self.active_pane.reload()
+					return True
 			elif event.key() == Qt.Key.Key_A and no_mod:
 				self.active_pane.select_all_files()
 				return True
@@ -927,7 +1035,7 @@ class MainWindow(QMainWindow):
 				else:
 					self.create_folder()
 				return True
-			elif event.key() == Qt.Key.Key_R:
+			elif event.key() == Qt.Key.Key_R and no_mod:
 				self.rename_item()
 				return True
 			elif event.key() == Qt.Key.Key_H:
@@ -980,12 +1088,36 @@ class MainWindow(QMainWindow):
 				self.extract_archives()
 				return True
 			elif event.key() == Qt.Key.Key_K:
-				self.delete_selected()
-				return True
+				if _mods == Qt.KeyboardModifier.ShiftModifier:
+					self.trash_selected()
+					return True
+				if no_mod:
+					self.delete_selected()
+					return True
 			elif event.key() == Qt.Key.Key_S and \
 				event.modifiers() == Qt.KeyboardModifier.NoModifier:
 				self.sort_files()
 				return True
+			elif event.key() == Qt.Key.Key_Backspace and no_mod:
+				self.active_pane.go_to_parent()
+				return True
+			elif event.key() == Qt.Key.Key_Q and no_mod:
+				confirm = QMessageBox.question(
+					self,
+					"終了確認",
+					"アプリケーションを終了しますか？",
+					QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+					QMessageBox.StandardButton.No,
+				)
+				if confirm == QMessageBox.StandardButton.Yes:
+					self.close()
+				return True
+			elif event.key() == Qt.Key.Key_J:
+				if no_mod:
+					return True  # ジャンプリスト（未実装）
+				if _mods == Qt.KeyboardModifier.ShiftModifier:
+					self._jump_to_input_path()
+					return True
 			elif event.text() == "~":
 				self.active_pane.navigate_to(Path.home())
 				return True
@@ -1111,4 +1243,21 @@ class MainWindow(QMainWindow):
 		if path is None:
 			return
 		FileInfoDialog(path, self).exec()
+
+	def _jump_to_input_path(self) -> None:
+		text, ok = QInputDialog.getText(
+			self,
+			"パスを入力して移動",
+			"移動先のパス:",
+			text=str(self.active_pane.current_path),
+		)
+		if not ok or not text.strip():
+			return
+		target = Path(text.strip()).expanduser()
+		if target.is_dir():
+			self.active_pane.navigate_to(target)
+		elif target.is_file():
+			self.active_pane.navigate_to(target.parent, focus_name=target.name)
+		else:
+			QMessageBox.warning(self, "移動エラー", f"パスが見つかりません:\n{target}")
 

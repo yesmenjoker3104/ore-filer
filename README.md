@@ -245,7 +245,7 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeを
 | `Backspace` | 親ディレクトリへ移動 |
 | `Yen` | ホームディレクトリ（`~`）へ移動 |
 | `Return` | フォルダーへ移動、またはアーカイブを開く |
-| `Shift+Return` | 関連付け実行 |
+| `Ctrl+Return` | 関連付け実行 |
 | `Escape` | 検索結果・フィルターを解除、処理の中断 |
 | `Shift+Escape` | バックグラウンド処理の中断 |
 | `Space` | 選択して下へ移動 |
