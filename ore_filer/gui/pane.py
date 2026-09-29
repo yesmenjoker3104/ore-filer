@@ -4,17 +4,21 @@ from PySide6.QtCore import (
     QDir,
     QFileInfo,
     QItemSelectionModel,
+    QMimeData,
     QModelIndex,
+    QPoint,
     QSize,
     QSortFilterProxyModel,
     QTimer,
+    QUrl,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QDrag, QPainter, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
-	QFileIconProvider,
+    QApplication,
+    QFileIconProvider,
     QFileSystemModel,
     QLabel,
     QStyledItemDelegate,
@@ -63,6 +67,117 @@ class FileTreeView(QTreeView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.cursor_visible = True
+        self._drag_start_pos: QPoint | None = None
+        self._drag_start_index: QModelIndex | None = None
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.pos()
+            self._drag_start_index = self.indexAt(event.pos())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if (
+            event.buttons() & Qt.MouseButton.LeftButton
+            and self._drag_start_pos is not None
+            and (event.pos() - self._drag_start_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._start_drag()
+            return
+        super().mouseMoveEvent(event)
+
+    def _start_drag(self) -> None:
+        self._drag_start_pos = None
+        pane = self.parent()
+        if not hasattr(pane, "selected_paths"):
+            return
+        if pane.is_archive_view():
+            return
+
+        paths = pane.selected_paths()
+        if not paths and self._drag_start_index is not None and self._drag_start_index.isValid():
+            path = pane.path_from_index(self._drag_start_index)
+            if path is not None:
+                paths = [path]
+
+        if not paths:
+            return
+
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
+
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        result = drag.exec(
+            Qt.DropAction.CopyAction | Qt.DropAction.MoveAction,
+            Qt.DropAction.CopyAction,
+        )
+
+        # 受け側が MoveAction を返した（外部アプリが移動した）場合はリロード
+        if result == Qt.DropAction.MoveAction:
+            pane.reload()
+
+    def dragEnterEvent(self, event) -> None:
+        pane = self.parent()
+        if hasattr(pane, "is_archive_view") and (
+            pane.is_archive_view() or pane.has_search_results()
+        ):
+            event.ignore()
+            return
+        if event.mimeData().hasUrls() and any(
+            u.isLocalFile() for u in event.mimeData().urls()
+        ):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        pane = self.parent()
+        if hasattr(pane, "is_archive_view") and (
+            pane.is_archive_view() or pane.has_search_results()
+        ):
+            event.ignore()
+            return
+        if event.mimeData().hasUrls() and any(
+            u.isLocalFile() for u in event.mimeData().urls()
+        ):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:
+        pane = self.parent()
+        if not hasattr(pane, "files_dropped"):
+            event.ignore()
+            return
+        if pane.is_archive_view() or pane.has_search_results():
+            event.ignore()
+            return
+
+        urls = event.mimeData().urls()
+        paths = [url.toLocalFile() for url in urls if url.isLocalFile()]
+        if not paths:
+            event.ignore()
+            return
+
+        # ドロップ先: カーソル下がフォルダならそのフォルダ、それ以外は current_path
+        index = self.indexAt(event.pos())
+        destination = str(pane.current_path)
+        if index.isValid():
+            p = pane.path_from_index(index)
+            if p is not None and p.is_dir():
+                destination = str(p)
+
+        is_move = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+        # 常に CopyAction として受け入れる（エクスプローラーに元ファイルを消させない）
+        event.setDropAction(Qt.DropAction.CopyAction)
+        event.accept()
+
+        pane.files_dropped.emit(paths, destination, is_move)
 
     def set_cursor_visible(self, visible: bool) -> None:
         if self.cursor_visible == visible:
@@ -253,6 +368,7 @@ class SearchResultFilterProxyModel(QSortFilterProxyModel):
 class PaneWidget(QWidget):
     path_changed = Signal(str)
     selection_changed = Signal()
+    files_dropped = Signal(list, str, bool)  # (paths, destination, is_move)
 
     def __init__(
         self,

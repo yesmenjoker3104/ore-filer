@@ -209,6 +209,9 @@ class MainWindow(QMainWindow):
 			pane.selection_changed.connect(self._update_status_bar)
 			pane.path_changed.connect(self._update_status_bar)
 
+		for pane in self.panes:
+			pane.files_dropped.connect(self._on_files_dropped)
+
 		self._update_active_pane()
 
 	@property
@@ -1243,6 +1246,67 @@ class MainWindow(QMainWindow):
 		if path is None:
 			return
 		FileInfoDialog(path, self).exec()
+
+	def _on_files_dropped(
+		self, raw_paths: list[str], destination: str, is_move: bool
+	) -> None:
+		from pathlib import Path as _Path
+
+		dest = _Path(destination).resolve()
+		sources: list[Path] = []
+		for raw in raw_paths:
+			src = _Path(raw).resolve()
+			if not src.exists():
+				continue
+			# 同フォルダへのドロップは何もしない（copy_paths が元を消す危険を避ける）
+			if src.parent == dest:
+				continue
+			# フォルダをそれ自身の中へはドロップ不可
+			if src.is_dir():
+				try:
+					dest.relative_to(src)
+					continue  # dest が src の配下
+				except ValueError:
+					pass
+			sources.append(src)
+
+		if not sources:
+			return
+
+		# ドロップ先ペインをアクティブにする
+		for i, pane in enumerate(self.panes):
+			if _Path(str(pane.current_path)).resolve() == dest or str(pane.current_path) == destination:
+				self.active_pane_index = i
+				self._update_active_pane()
+				break
+
+		op = "移動" if is_move else "コピー"
+		names = "\n".join(src.name for src in sources)
+		confirm = QMessageBox.question(
+			self,
+			f"ドロップ {op} 確認",
+			f"次の項目を {op} しますか？\n\n{dest}\n\n{names}",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+
+		if not self.confirm_overwrite(sources, dest):
+			return
+
+		if is_move:
+			self._start_file_operation(
+				lambda s=sources, d=dest: move_paths(s, d, overwrite=True),
+				"移動しています...",
+				f"{len(sources)}件を移動しました。",
+			)
+		else:
+			self._start_file_operation(
+				lambda s=sources, d=dest: copy_paths(s, d, overwrite=True),
+				"コピーしています...",
+				f"{len(sources)}件をコピーしました。",
+			)
 
 	def _jump_to_input_path(self) -> None:
 		text, ok = QInputDialog.getText(
