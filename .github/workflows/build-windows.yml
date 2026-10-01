@@ -41,7 +41,6 @@ jobs:
           --name ore-filer
           --icon "ore_filer/icon.ico"
           --add-data "ore_filer/icon.ico;ore_filer"
-          --collect-all PySide6
           ore_filer/app.py
 
       - name: Upload executable
