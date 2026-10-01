@@ -2,7 +2,7 @@ import base64
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QEvent, QThread, Qt, Signal
+from PySide6.QtCore import QDir, QEvent, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
 	QDialog,
@@ -26,7 +26,8 @@ from ore_filer.gui.dialogs import (
 )
 from ore_filer.gui.context_menu import show_shell_context_menu
 from ore_filer.gui.pane import PaneWidget
-from ore_filer.settings import load_bookmarks, save_bookmarks, save_session
+from ore_filer.settings import load_bookmarks, load_session, save_bookmarks, save_session
+from ore_filer.updater import UpdateCheckThread, UpdateDownloadThread, install_update
 from ore_filer.services.file_operations import (
 	ArchiveEntry,
 	ArchivePasswordError,
@@ -213,6 +214,10 @@ class MainWindow(QMainWindow):
 			pane.files_dropped.connect(self._on_files_dropped)
 
 		self._update_active_pane()
+		self._last_update_check: str = ""
+		self._update_check_thread: UpdateCheckThread | None = None
+		self._update_download_thread: UpdateDownloadThread | None = None
+		QTimer.singleShot(3000, self._check_for_updates)
 
 	@property
 	def active_pane(self) -> PaneWidget:
@@ -241,6 +246,7 @@ class MainWindow(QMainWindow):
 			right_path=str(self.right_pane.current_path),
 			geometry=geometry,
 			splitter=splitter,
+			last_update_check=self._last_update_check,
 		)
 		super().closeEvent(event)
 
@@ -1324,4 +1330,52 @@ class MainWindow(QMainWindow):
 			self.active_pane.navigate_to(target.parent, focus_name=target.name)
 		else:
 			QMessageBox.warning(self, "移動エラー", f"パスが見つかりません:\n{target}")
+
+	def _check_for_updates(self) -> None:
+		from datetime import datetime, timedelta, timezone
+
+		session = load_session()
+		last = session.get("last_update_check", "")
+		self._last_update_check = last
+		if last:
+			try:
+				last_dt = datetime.fromisoformat(last)
+				if datetime.now(timezone.utc) - last_dt < timedelta(hours=24):
+					return
+			except ValueError:
+				pass
+
+		self._last_update_check = datetime.now(timezone.utc).isoformat()
+		self._update_check_thread = UpdateCheckThread()
+		self._update_check_thread.update_available.connect(self._on_update_available)
+		self._update_check_thread.start()
+
+	def _on_update_available(self, tag: str, url: str) -> None:
+		answer = QMessageBox.question(
+			self,
+			"アップデート",
+			f"新しいバージョン {tag} があります。ダウンロードしますか？",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+		)
+		if answer != QMessageBox.StandardButton.Yes:
+			return
+		self.statusBar().showMessage("アップデートをダウンロード中...")
+		self._update_download_thread = UpdateDownloadThread(url)
+		self._update_download_thread.download_progress.connect(
+			lambda p: self.statusBar().showMessage(f"ダウンロード中... {p}%")
+		)
+		self._update_download_thread.download_finished.connect(self._on_download_finished)
+		self._update_download_thread.download_failed.connect(
+			lambda e: self.statusBar().showMessage(f"ダウンロード失敗: {e}")
+		)
+		self._update_download_thread.start()
+
+	def _on_download_finished(self, path: str) -> None:
+		import sys
+
+		if getattr(sys, "frozen", False):
+			install_update(path)
+			self.close()
+		else:
+			self.statusBar().showMessage("開発モードのためインストールをスキップしました")
 

@@ -44,6 +44,7 @@ def load_session() -> dict:
 		"right_path": _str("right_path"),
 		"geometry": _str("geometry"),
 		"splitter": _str("splitter"),
+		"last_update_check": _str("last_update_check"),
 	}
 
 
@@ -54,6 +55,7 @@ def save_session(
 	right_path: str = "",
 	geometry: str = "",
 	splitter: str = "",
+	last_update_check: str = "",
 ) -> None:
 	path = session_file()
 	path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,6 +65,7 @@ def save_session(
 		"right_path": right_path,
 		"geometry": geometry,
 		"splitter": splitter,
+		"last_update_check": last_update_check,
 	}
 	temporary_path = path.with_suffix(".tmp")
 	with temporary_path.open("w", encoding="utf-8") as file:
