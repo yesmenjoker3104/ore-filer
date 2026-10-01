@@ -1097,6 +1097,11 @@ class MainWindow(QMainWindow):
 				event.modifiers() == Qt.KeyboardModifier.NoModifier:
 				self.extract_archives()
 				return True
+			elif event.key() == Qt.Key.Key_Question and \
+				_mods & Qt.KeyboardModifier.ControlModifier:
+				self.statusBar().showMessage("アップデートを確認中...")
+				self._check_for_updates(force=True)
+				return True
 			elif event.key() == Qt.Key.Key_K:
 				if _mods == Qt.KeyboardModifier.ShiftModifier:
 					self.trash_selected()
@@ -1341,23 +1346,31 @@ class MainWindow(QMainWindow):
 		else:
 			QMessageBox.warning(self, "移動エラー", f"パスが見つかりません:\n{target}")
 
-	def _check_for_updates(self) -> None:
+	def _check_for_updates(self, force: bool = False) -> None:
 		from datetime import datetime, timedelta, timezone
 
-		session = load_session()
-		last = session.get("last_update_check", "")
-		self._last_update_check = last
-		if last:
-			try:
-				last_dt = datetime.fromisoformat(last)
-				if datetime.now(timezone.utc) - last_dt < timedelta(hours=24):
-					return
-			except ValueError:
-				pass
+		if not force:
+			session = load_session()
+			last = session.get("last_update_check", "")
+			self._last_update_check = last
+			if last:
+				try:
+					last_dt = datetime.fromisoformat(last)
+					if datetime.now(timezone.utc) - last_dt < timedelta(hours=24):
+						return
+				except ValueError:
+					pass
 
 		self._last_update_check = datetime.now(timezone.utc).isoformat()
 		self._update_check_thread = UpdateCheckThread()
 		self._update_check_thread.update_available.connect(self._on_update_available)
+		if force:
+			self._update_check_thread.up_to_date.connect(
+				lambda: self.statusBar().showMessage("最新版です")
+			)
+			self._update_check_thread.check_failed.connect(
+				lambda: self.statusBar().showMessage("アップデート確認に失敗しました")
+			)
 		self._update_check_thread.start()
 
 	def _on_update_available(self, tag: str, url: str) -> None:

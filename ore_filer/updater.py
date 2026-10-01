@@ -19,6 +19,8 @@ def _parse_version(tag: str) -> tuple:
 
 class UpdateCheckThread(QThread):
     update_available = Signal(str, str)  # tag, download_url
+    up_to_date = Signal()
+    check_failed = Signal()
 
     def run(self) -> None:
         try:
@@ -33,6 +35,7 @@ class UpdateCheckThread(QThread):
                 data = json.loads(resp.read())
             tag = data.get("tag_name", "")
             if not tag:
+                self.up_to_date.emit()
                 return
             if _parse_version(tag) > _parse_version(__version__):
                 url = ""
@@ -42,8 +45,12 @@ class UpdateCheckThread(QThread):
                         break
                 if url:
                     self.update_available.emit(tag, url)
+                else:
+                    self.up_to_date.emit()
+            else:
+                self.up_to_date.emit()
         except Exception:
-            pass
+            self.check_failed.emit()
 
 
 class UpdateDownloadThread(QThread):
