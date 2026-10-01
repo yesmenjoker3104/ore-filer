@@ -601,11 +601,12 @@ def _remove_existing(path: Path) -> None:
 
 
 def copy_paths(
-    paths: list[Path], destination: Path, *, overwrite: bool = False
+    paths: list[Path], destination: Path, *, overwrite: bool = False,
+    progress_cb=None,
 ) -> None:
     destination = destination.resolve()
-
-    for source in paths:
+    total = len(paths)
+    for i, source in enumerate(paths):
         target = destination / source.name
         if target.exists():
             if not overwrite:
@@ -615,15 +616,18 @@ def copy_paths(
             shutil.copy2(source, target)
         elif source.is_dir():
             shutil.copytree(source, target)
+        if progress_cb:
+            progress_cb(i + 1, total)
 
 
 def copy_paths_with_structure(
-    paths: list[Path], base_path: Path, destination: Path, *, overwrite: bool = False
+    paths: list[Path], base_path: Path, destination: Path, *, overwrite: bool = False,
+    progress_cb=None,
 ) -> None:
     base_path = base_path.resolve()
     destination = destination.resolve()
-
-    for source in paths:
+    total = len(paths)
+    for i, source in enumerate(paths):
         try:
             relative = source.relative_to(base_path)
         except ValueError:
@@ -638,21 +642,29 @@ def copy_paths_with_structure(
             shutil.copy2(source, target)
         elif source.is_dir():
             shutil.copytree(source, target)
+        if progress_cb:
+            progress_cb(i + 1, total)
 
 
-def delete_paths(paths: list[Path]) -> None:
-    for path in paths:
+def delete_paths(paths: list[Path], *, progress_cb=None) -> None:
+    total = len(paths)
+    for i, path in enumerate(paths):
         if path.is_dir():
             shutil.rmtree(path)
         elif path.is_file():
             path.unlink()
+        if progress_cb:
+            progress_cb(i + 1, total)
 
 
-def trash_paths(paths: list[Path]) -> None:
+def trash_paths(paths: list[Path], *, progress_cb=None) -> None:
     from PySide6.QtCore import QFile
-    for path in paths:
+    total = len(paths)
+    for i, path in enumerate(paths):
         if not QFile.moveToTrash(str(path)):
             raise OSError(f"ごみ箱への移動に失敗しました: {path}")
+        if progress_cb:
+            progress_cb(i + 1, total)
 
 
 def create_directory(parent: Path, name: str) -> Path:
@@ -672,14 +684,17 @@ def open_with_association(path: Path) -> None:
 
 
 def move_paths(
-    paths: list[Path], destination: Path, *, overwrite: bool = False
+    paths: list[Path], destination: Path, *, overwrite: bool = False,
+    progress_cb=None,
 ) -> None:
     destination = destination.resolve()
-
-    for source in paths:
+    total = len(paths)
+    for i, source in enumerate(paths):
         target = destination / source.name
         if target.exists():
             if not overwrite:
                 raise FileExistsError(target)
             _remove_existing(target)
         shutil.move(source, target)
+        if progress_cb:
+            progress_cb(i + 1, total)

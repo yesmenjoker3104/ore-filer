@@ -49,14 +49,15 @@ from ore_filer.services.file_operations import (
 class FileOperationThread(QThread):
 	completed = Signal()
 	failed = Signal(str)
+	progress = Signal(int, int)
 
-	def __init__(self, func: Callable[[], None], parent=None):
+	def __init__(self, func: Callable, parent=None):
 		super().__init__(parent)
 		self._func = func
 
 	def run(self) -> None:
 		try:
-			self._func()
+			self._func(self.progress.emit)
 		except Exception as error:
 			self.failed.emit(str(error))
 		else:
@@ -134,6 +135,7 @@ class ArchiveCopyThread(QThread):
 class ExtractArchiveThread(QThread):
 	completed = Signal(int, str)
 	failed = Signal(str)
+	progress = Signal(int, int)
 
 	def __init__(
 		self,
@@ -148,13 +150,15 @@ class ExtractArchiveThread(QThread):
 	def run(self) -> None:
 		extracted_count = 0
 		errors: list[str] = []
-		for archive_path in self.archive_paths:
+		total = len(self.archive_paths)
+		for i, archive_path in enumerate(self.archive_paths):
 			try:
 				extract_archive(archive_path, self.destination)
 			except Exception as error:
 				errors.append(f"{archive_path.name}: {error}")
 			else:
 				extracted_count += 1
+			self.progress.emit(i + 1, total)
 
 		if extracted_count == 0:
 			self.failed.emit("\n".join(errors) or "展開できるアーカイブがありません。")
@@ -469,7 +473,7 @@ class MainWindow(QMainWindow):
 				return
 			overwrite = True
 
-		self.statusBar().showMessage("アーカイブを作成しています...")
+		self.statusBar().showMessage(f"アーカイブを作成しています ({len(paths)}件)...")
 		thread = ArchiveThread(
 			archive_path,
 			active_pane.current_path,
@@ -531,8 +535,13 @@ class MainWindow(QMainWindow):
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
 
+		total = len(paths)
 		self.statusBar().showMessage("アーカイブを展開しています...")
 		thread = ExtractArchiveThread(paths, inactive_pane.current_path, self)
+		if total > 1:
+			thread.progress.connect(
+				lambda done, t: self.statusBar().showMessage(f"アーカイブを展開しています... {done}/{t}件")
+			)
 		thread.completed.connect(self._extract_completed)
 		thread.failed.connect(self._extract_failed)
 		thread.finished.connect(self._archive_thread_finished)
@@ -678,19 +687,21 @@ class MainWindow(QMainWindow):
 			if not self._confirm_overwrite_structured(source, base_path, destination):
 				return
 			self._start_file_operation(
-				lambda s=source, b=base_path, d=destination:
-					copy_paths_with_structure(s, b, d, overwrite=True),
+				lambda cb, s=source, b=base_path, d=destination:
+					copy_paths_with_structure(s, b, d, overwrite=True, progress_cb=cb),
 				"コピーしています...",
 				f"{len(source)}件をコピーしました。",
+				total=len(source),
 			)
 		else:
 			if not self.confirm_overwrite(source, destination):
 				return
 			self._start_file_operation(
-				lambda s=source, d=destination:
-					copy_paths(s, d, overwrite=True),
+				lambda cb, s=source, d=destination:
+					copy_paths(s, d, overwrite=True, progress_cb=cb),
 				"コピーしています...",
 				f"{len(source)}件をコピーしました。",
+				total=len(source),
 			)
 
 	def copy_selected_archive_entries(self) -> None:
@@ -856,9 +867,10 @@ class MainWindow(QMainWindow):
 			return
 
 		self._start_file_operation(
-			lambda p=paths: delete_paths(p),
+			lambda cb, p=paths: delete_paths(p, progress_cb=cb),
 			"削除しています...",
 			f"{len(paths)}件を削除しました。",
+			total=len(paths),
 		)
 
 	def trash_selected(self) -> None:
@@ -877,9 +889,10 @@ class MainWindow(QMainWindow):
 			return
 
 		self._start_file_operation(
-			lambda p=paths: trash_paths(p),
+			lambda cb, p=paths: trash_paths(p, progress_cb=cb),
 			"ごみ箱へ移動しています...",
 			f"{len(paths)}件をごみ箱へ移動しました。",
+			total=len(paths),
 		)
 
 	def move_selected(self) -> None:
@@ -903,22 +916,29 @@ class MainWindow(QMainWindow):
 			return
 
 		self._start_file_operation(
-			lambda p=paths, d=destination: move_paths(p, d, overwrite=True),
+			lambda cb, p=paths, d=destination: move_paths(p, d, overwrite=True, progress_cb=cb),
 			"移動しています...",
 			f"{len(paths)}件を移動しました。",
+			total=len(paths),
 		)
 
 	def _start_file_operation(
 		self,
-		func: Callable[[], None],
+		func: Callable,
 		busy_message: str,
 		done_message: str,
+		total: int = 0,
 	) -> None:
 		if (self._file_op_thread is not None and self._file_op_thread.isRunning()) or \
 		   (self._archive_thread is not None and self._archive_thread.isRunning()):
 			return
 		self.statusBar().showMessage(busy_message)
 		thread = FileOperationThread(func, self)
+		if total > 0:
+			thread.progress.connect(
+				lambda done, t, msg=busy_message:
+					self.statusBar().showMessage(f"{msg.rstrip('...')} {done}/{t}件...")
+			)
 		thread.completed.connect(lambda msg=done_message: self._file_op_completed(msg))
 		thread.failed.connect(self._file_op_failed)
 		thread.finished.connect(self._file_op_thread_finished)
@@ -1121,7 +1141,7 @@ class MainWindow(QMainWindow):
 				QMessageBox.information(
 					self,
 					"バージョン情報",
-					f"Ore Filer v{__version__}",
+					f"Ore Filer v{__version__}\n\nhttps://github.com/yesmenjoker3104/ore-filer",
 					QMessageBox.StandardButton.Ok,
 				)
 				return True
@@ -1318,15 +1338,17 @@ class MainWindow(QMainWindow):
 
 		if is_move:
 			self._start_file_operation(
-				lambda s=sources, d=dest: move_paths(s, d, overwrite=True),
+				lambda cb, s=sources, d=dest: move_paths(s, d, overwrite=True, progress_cb=cb),
 				"移動しています...",
 				f"{len(sources)}件を移動しました。",
+				total=len(sources),
 			)
 		else:
 			self._start_file_operation(
-				lambda s=sources, d=dest: copy_paths(s, d, overwrite=True),
+				lambda cb, s=sources, d=dest: copy_paths(s, d, overwrite=True, progress_cb=cb),
 				"コピーしています...",
 				f"{len(sources)}件をコピーしました。",
+				total=len(sources),
 			)
 
 	def _jump_to_input_path(self) -> None:
