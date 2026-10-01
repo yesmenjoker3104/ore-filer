@@ -180,7 +180,8 @@ class MainWindow(QMainWindow):
 		history: list[str | Path] | None = None,
 	):
 		super().__init__()
-		self.setWindowTitle("Ore Filer")
+		from ore_filer.version import __version__
+		self.setWindowTitle(f"Ore Filer v{__version__}")
 		self.resize(1200, 700)
 		shared_history = history if history is not None else []
 		self.left_pane = PaneWidget(left_path, history=shared_history)
@@ -1110,7 +1111,7 @@ class MainWindow(QMainWindow):
 			elif event.key() == Qt.Key.Key_Backspace and no_mod:
 				self.active_pane.go_to_parent()
 				return True
-			elif event.key() == Qt.Key.Key_Question and no_mod:
+			elif event.text() == "?":
 				from ore_filer.version import __version__
 				QMessageBox.information(
 					self,
