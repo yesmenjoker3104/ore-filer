@@ -1110,6 +1110,15 @@ class MainWindow(QMainWindow):
 			elif event.key() == Qt.Key.Key_Backspace and no_mod:
 				self.active_pane.go_to_parent()
 				return True
+			elif event.key() == Qt.Key.Key_Question and no_mod:
+				from ore_filer.version import __version__
+				QMessageBox.information(
+					self,
+					"バージョン情報",
+					f"Ore Filer v{__version__}",
+					QMessageBox.StandardButton.Ok,
+				)
+				return True
 			elif event.key() == Qt.Key.Key_Q and no_mod:
 				confirm = QMessageBox.question(
 					self,
