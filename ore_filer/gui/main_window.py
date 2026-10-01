@@ -1420,6 +1420,12 @@ class MainWindow(QMainWindow):
 
 		if getattr(sys, "frozen", False):
 			install_update(path)
+			QMessageBox.information(
+				self,
+				"アップデート完了",
+				"アップデートを適用しました。\nアプリを再起動してください。",
+				QMessageBox.StandardButton.Ok,
+			)
 			self.close()
 		else:
 			self.statusBar().showMessage("開発モードのためインストールをスキップしました")

@@ -96,7 +96,6 @@ def install_update(new_exe_path: str) -> None:
         "@echo off",
         "timeout /t 2 /nobreak > nul",
         f'move /y "{new_exe_path}" "{current_exe}"',
-        f'start "" "{current_exe}"',
         'del "%~f0"',
     ]
     bat_path = os.path.join(tempfile.gettempdir(), "ore_filer_update.bat")
