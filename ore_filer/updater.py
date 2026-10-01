@@ -49,6 +49,11 @@ class UpdateCheckThread(QThread):
                     self.up_to_date.emit()
             else:
                 self.up_to_date.emit()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                self.up_to_date.emit()
+            else:
+                self.check_failed.emit()
         except Exception:
             self.check_failed.emit()
 
