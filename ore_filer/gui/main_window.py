@@ -252,8 +252,14 @@ class MainWindow(QMainWindow):
 			geometry=geometry,
 			splitter=splitter,
 			last_update_check=self._last_update_check,
+			font_size=self.left_pane._font_size,
 		)
 		super().closeEvent(event)
+
+	def restore_font_size(self, size: int) -> None:
+		if size > 0:
+			for pane in self.panes:
+				pane.adjust_font_size(size - pane._font_size)
 
 	def restore_window_state(self, geometry: str, splitter: str) -> None:
 		if geometry:

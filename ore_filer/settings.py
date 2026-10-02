@@ -38,6 +38,10 @@ def load_session() -> dict:
 		v = data.get(key, "")
 		return v if isinstance(v, str) else ""
 
+	def _int(key: str, default: int) -> int:
+		v = data.get(key, default)
+		return v if isinstance(v, int) else default
+
 	return {
 		"history": [value for value in values if isinstance(value, str)][:MAX_HISTORY],
 		"left_path": _str("left_path"),
@@ -45,6 +49,7 @@ def load_session() -> dict:
 		"geometry": _str("geometry"),
 		"splitter": _str("splitter"),
 		"last_update_check": _str("last_update_check"),
+		"font_size": _int("font_size", 0),
 	}
 
 
@@ -56,6 +61,7 @@ def save_session(
 	geometry: str = "",
 	splitter: str = "",
 	last_update_check: str = "",
+	font_size: int = 0,
 ) -> None:
 	path = session_file()
 	path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +72,7 @@ def save_session(
 		"geometry": geometry,
 		"splitter": splitter,
 		"last_update_check": last_update_check,
+		"font_size": font_size,
 	}
 	temporary_path = path.with_suffix(".tmp")
 	with temporary_path.open("w", encoding="utf-8") as file:
