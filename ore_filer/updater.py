@@ -1,9 +1,10 @@
 import json
 import os
-import subprocess
+import shutil
 import sys
 import tempfile
 import urllib.request
+import urllib.error
 
 from PySide6.QtCore import QThread, Signal
 
@@ -89,20 +90,41 @@ class UpdateDownloadThread(QThread):
 
 
 def install_update(new_exe_path: str) -> None:
+    """実行中の exe をリネームして新 exe をその場所にコピーする。
+    Windows では実行中 exe のリネームは可能なので bat 不要。"""
     if not getattr(sys, "frozen", False):
         return
     current_exe = sys.executable
-    bat_lines = [
-        "@echo off",
-        "timeout /t 2 /nobreak > nul",
-        f'move /y "{new_exe_path}" "{current_exe}"',
-        'del "%~f0"',
-    ]
-    bat_path = os.path.join(tempfile.gettempdir(), "ore_filer_update.bat")
-    with open(bat_path, "w", encoding="cp932") as f:
-        f.write("\r\n".join(bat_lines))
-    subprocess.Popen(
-        ["cmd", "/c", bat_path],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-        close_fds=True,
-    )
+    backup_exe = current_exe + ".old"
+    try:
+        # 実行中でもリネームは可能
+        if os.path.exists(backup_exe):
+            os.unlink(backup_exe)
+        os.rename(current_exe, backup_exe)
+        try:
+            shutil.copy2(new_exe_path, current_exe)
+        except Exception:
+            # コピー失敗時は元に戻す
+            os.rename(backup_exe, current_exe)
+            raise
+    finally:
+        try:
+            os.unlink(new_exe_path)
+        except Exception:
+            pass
+        try:
+            shutil.rmtree(os.path.dirname(new_exe_path), ignore_errors=True)
+        except Exception:
+            pass
+
+
+def cleanup_old_exe() -> None:
+    """起動時に前回アップデートで残った .old ファイルを削除する。"""
+    if not getattr(sys, "frozen", False):
+        return
+    old_exe = sys.executable + ".old"
+    if os.path.exists(old_exe):
+        try:
+            os.unlink(old_exe)
+        except Exception:
+            pass

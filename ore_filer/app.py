@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 
 from ore_filer.gui.main_window import MainWindow
 from ore_filer.settings import load_session
+from ore_filer.updater import cleanup_old_exe
 
 WINDOWS_APP_USER_MODEL_ID = "OreFiler.FileManager"
 
@@ -30,6 +31,7 @@ def _session_start_path(history: list[str]) -> Path:
 
 
 def main() -> int:
+    cleanup_old_exe()
     _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
     icon = QIcon(str(Path(__file__).with_name("icon.ico")))
