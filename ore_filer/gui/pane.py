@@ -406,6 +406,10 @@ class PaneWidget(QWidget):
         self._cursor_memory: dict[Path, str] = {}
         self._pending_focus: str | None = None
 
+        self._font_size: int = self.font().pointSize()
+        if self._font_size <= 0:
+            self._font_size = 10
+
         self.file_view = FileTreeView()
         self.file_view.setModel(self.filter_model)
         self._reconnect_selection_signal()
@@ -1025,6 +1029,20 @@ class PaneWidget(QWidget):
                 pass
         sm.selectionChanged.connect(self.selection_changed)
         self._sel_sm_connected = sm
+
+    def adjust_font_size(self, delta: int) -> None:
+        """フォントとアイコンサイズを delta pt 変更する（8〜32pt の範囲）。"""
+        new_size = max(8, min(32, self._font_size + delta))
+        if new_size == self._font_size:
+            return
+        self._font_size = new_size
+        font = self.file_view.font()
+        font.setPointSize(new_size)
+        self.file_view.setFont(font)
+        icon_size = max(12, new_size + 4)
+        self.file_view.setIconSize(QSize(icon_size, icon_size))
+        # 行の高さを font に合わせて再計算させる
+        self.file_view.scheduleDelayedItemsLayout()
 
     def visible_item_count(self) -> int:
         model = self.file_view.model()

@@ -1162,6 +1162,14 @@ class MainWindow(QMainWindow):
 				if _mods == Qt.KeyboardModifier.ShiftModifier:
 					self._jump_to_input_path()
 					return True
+			elif event.text() in ("+", "＋"):
+				for pane in self.panes:
+					pane.adjust_font_size(+1)
+				return True
+			elif event.text() == "-":
+				for pane in self.panes:
+					pane.adjust_font_size(-1)
+				return True
 			elif event.text() == "~":
 				self.active_pane.navigate_to(Path.home())
 				return True
