@@ -249,6 +249,7 @@ class FileFilterProxyModel(QSortFilterProxyModel):
 
     def set_sort_mode(self, mode: str) -> None:
         self._sort_mode = mode
+        self.invalidate()
 
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
         source = self.sourceModel()
@@ -318,6 +319,7 @@ class SearchResultFilterProxyModel(QSortFilterProxyModel):
 
     def set_sort_mode(self, mode: str) -> None:
         self._sort_mode = mode
+        self.invalidate()
 
     def has_filter(self) -> bool:
         return bool(self._query)
