@@ -627,3 +627,39 @@ class ImageViewerDialog(QDialog):
         if new_index != self._index:
             self._index = new_index
             self._load_image()
+
+
+
+def confirm_list(
+    parent,
+    title: str,
+    message: str,
+    items: list[str],
+) -> bool:
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(title)
+
+    label = QLabel(message)
+    label.setWordWrap(True)
+
+    list_widget = QListWidget(dialog)
+    list_widget.addItems(items)
+    list_widget.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+    list_widget.setMinimumHeight(120)
+
+    buttons = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
+    )
+    buttons.button(QDialogButtonBox.StandardButton.No).setDefault(True)
+    buttons.button(QDialogButtonBox.StandardButton.No).setFocus()
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(label)
+    layout.addWidget(list_widget, 1)
+    layout.addWidget(QLabel(f"{len(items)}件"))
+    layout.addWidget(buttons)
+
+    dialog.resize(520, 420)
+    return dialog.exec() == QDialog.DialogCode.Accepted

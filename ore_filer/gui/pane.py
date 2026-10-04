@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QDrag, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QDrag, QPainter, QPen, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -60,6 +60,14 @@ class FileItemDelegate(QStyledItemDelegate):
         ):
             painter.save()
             painter.fillRect(option.rect, QColor(170, 210, 240, 80))
+            painter.restore()
+        elif view.cursor_visible and is_current_row:
+            painter.save()
+            painter.fillRect(option.rect, QColor(0, 40, 110, 110))
+            painter.setPen(QPen(QColor(255, 200, 0), 2))
+            rect = option.rect.adjusted(0, 1, 0, -1)
+            painter.drawLine(rect.topLeft(), rect.topRight())
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
             painter.restore()
 
 

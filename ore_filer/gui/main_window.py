@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from ore_filer.gui.dialogs import (
 	ArchiveDialog,
 	BookmarkDialog,
+	confirm_list,
 	FileInfoDialog,
 	FilterDialog,
 	HistoryDialog,
@@ -614,15 +615,12 @@ class MainWindow(QMainWindow):
 		if not existing:
 			return True
 
-		names = "\n".join(path.name for path in existing)
-		confirm = QMessageBox.question(
+		return confirm_list(
 			self,
 			"上書き確認",
-			f"次の項目は既に存在します。上書きしますか？\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
+			"次の項目は既に存在します。上書きしますか？",
+			[path.name for path in existing],
 		)
-		return confirm == QMessageBox.StandardButton.Yes
 
 	def _confirm_overwrite_structured(
 		self, paths: list[Path], base_path: Path, destination: Path
@@ -639,15 +637,12 @@ class MainWindow(QMainWindow):
 		if not existing:
 			return True
 
-		names = "\n".join(str(p.relative_to(destination)) for p in existing)
-		confirm = QMessageBox.question(
+		return confirm_list(
 			self,
 			"上書き確認",
-			f"次の項目は既に存在します。上書きしますか？\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
+			"次の項目は既に存在します。上書きしますか？",
+			[str(p.relative_to(destination)) for p in existing],
 		)
-		return confirm == QMessageBox.StandardButton.Yes
 
 	def copy_selected(self) -> None:
 		if self.active_pane.is_archive_view():
@@ -666,16 +661,12 @@ class MainWindow(QMainWindow):
 			return
 
 		destination = self.inactive_pane.current_path
-		names = "\n".join(path.name for path in source)
-
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			"ファイルコピー確認",
-			f"次の項目をコピーしますか？\n\n{destination}\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-		)
-
-		if confirm != QMessageBox.StandardButton.Yes:
+			f"次の項目をコピーしますか？\n\n{destination}",
+			[path.name for path in source],
+		):
 			return
 
 		use_structure = False
@@ -727,15 +718,12 @@ class MainWindow(QMainWindow):
 			return
 
 		destination = self.inactive_pane.current_path
-		names = "\n".join(entry.name for entry in entries)
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			"アーカイブ内ファイルのコピー確認",
-			f"次の項目をコピーしますか？\n\n{destination}\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
-		)
-		if confirm != QMessageBox.StandardButton.Yes:
+			f"次の項目をコピーしますか？\n\n{destination}",
+			[entry.name for entry in entries],
+		):
 			return
 
 		existing = [
@@ -744,15 +732,12 @@ class MainWindow(QMainWindow):
 			if (destination / entry.name).exists()
 		]
 		if existing:
-			existing_names = "\n".join(path.name for path in existing)
-			confirm = QMessageBox.question(
+			if not confirm_list(
 				self,
 				"上書き確認",
-				f"次の項目は既に存在します。上書きしますか？\n\n{existing_names}",
-				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-				QMessageBox.StandardButton.No,
-			)
-			if confirm != QMessageBox.StandardButton.Yes:
+				"次の項目は既に存在します。上書きしますか？",
+				[path.name for path in existing],
+			):
 				return
 
 		source_pane = self.active_pane
@@ -862,14 +847,12 @@ class MainWindow(QMainWindow):
 		if not paths:
 			return
 
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			"削除確認",
-			f"次の項目を完全削除しますか？\n\n{chr(10).join(path.name for path in paths)}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
-		)
-		if confirm != QMessageBox.StandardButton.Yes:
+			"次の項目を完全削除しますか？",
+			[path.name for path in paths],
+		):
 			return
 
 		self._start_file_operation(
@@ -884,14 +867,12 @@ class MainWindow(QMainWindow):
 		if not paths:
 			return
 
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			"ごみ箱への移動",
-			f"次の項目をごみ箱へ移動しますか？\n\n{chr(10).join(path.name for path in paths)}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
-		)
-		if confirm != QMessageBox.StandardButton.Yes:
+			"次の項目をごみ箱へ移動しますか？",
+			[path.name for path in paths],
+		):
 			return
 
 		self._start_file_operation(
@@ -907,15 +888,12 @@ class MainWindow(QMainWindow):
 			return
 
 		destination = self.inactive_pane.current_path
-		names = "\n".join(path.name for path in paths)
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			"ファイル移動確認",
-			f"次の項目を移動しますか？\n\n{destination}\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
-		)
-		if confirm != QMessageBox.StandardButton.Yes:
+			f"次の項目を移動しますか？\n\n{destination}",
+			[path.name for path in paths],
+		):
 			return
 
 		if not self.confirm_overwrite(paths, destination):
@@ -1336,15 +1314,12 @@ class MainWindow(QMainWindow):
 				break
 
 		op = "移動" if is_move else "コピー"
-		names = "\n".join(src.name for src in sources)
-		confirm = QMessageBox.question(
+		if not confirm_list(
 			self,
 			f"ドロップ {op} 確認",
-			f"次の項目を {op} しますか？\n\n{dest}\n\n{names}",
-			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
-		)
-		if confirm != QMessageBox.StandardButton.Yes:
+			f"次の項目を {op} しますか？\n\n{dest}",
+			[src.name for src in sources],
+		):
 			return
 
 		if not self.confirm_overwrite(sources, dest):
