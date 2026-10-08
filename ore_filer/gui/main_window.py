@@ -1169,16 +1169,10 @@ class MainWindow(QMainWindow):
 			elif action == "keymap_help":
 				self.show_keymap_help()
 				return True
-			elif action in ("version_info", "update_check"):
-				if action == "update_check":
-					self.statusBar().showMessage("アップデートを確認中...")
-					self._check_for_updates(force=True)
-				else:
-					from ore_filer.version import __version__
-					QMessageBox.information(
-						self, "バージョン情報",
-						f"Ore Filer v{__version__}\n\nhttps://github.com/yesmenjoker3104/ore-filer",
-					)
+			elif action == "update_check":
+				from ore_filer.version import __version__
+				self.statusBar().showMessage(f"Ore Filer v{__version__} — アップデートを確認中...")
+				self._check_for_updates(force=True)
 				return True
 			elif action == "quit":
 				confirm = QMessageBox.question(

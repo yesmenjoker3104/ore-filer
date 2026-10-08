@@ -77,6 +77,5 @@ bookmark_add    = "Ctrl+B"          # ブックマークに追加
 
 # ── システム ───────────────────────────────────────────────
 keymap_help     = "Question"        # キー一覧を表示
-version_info    = "Ctrl+Question"   # バージョン情報
-update_check    = "Ctrl+Question"   # アップデートを確認
+update_check    = "Ctrl+Question"   # バージョン情報 / アップデートを確認
 quit            = "Q"               # アプリを終了
