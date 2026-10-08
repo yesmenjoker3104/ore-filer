@@ -45,11 +45,17 @@ GUI・CLI・プラグインはすべて `services/` を経由してファイル�
 - **`gui/main_window.py`** — 左右ペインの管理、`eventFilter` でのキーハンドリング、ファイル操作の確認ダイアログ。長時間処理は `QThread` サブクラス（`ArchiveThread` 等）で非同期実行
 - **`gui/pane.py`** — 1ペインのUI。`QFileSystemModel` + `QTreeView` でファイル一覧を表示。アーカイブ内閲覧モードと通常ディレクトリモードを切り替える
 - **`services/file_operations.py`** — コピー・移動・削除・アーカイブ作成/展開の本体。zip/jar/apk は `pyzipper`、7z は `py7zr` を使用
-- **`settings.py`** — セッション情報（ディレクトリ履歴）を `%APPDATA%\ore-filer\session.json` に保存・復元
+- **`settings.py`** — セッション情報（ディレクトリ履歴）を `%APPDATA%\ore-filer\session.json` に、アプリ設定（エディタパス・隠しファイル表示等）を `%APPDATA%\ore-filer\config.json` に保存・復元
 
 ### キーマップ
 
-現状のキーハンドリングは `gui/main_window.py:eventFilter` にハードコードされている。`config/keymap.toml` と `gui/keymap.py` は外部キー設定の基盤として存在するが、`eventFilter` への接続はまだ未実装。キー操作を変更する場合は `eventFilter` を直接編集する。
+キーバインディングは `config/keymap.toml`（リポジトリ同梱テンプレート）と `gui/keymap.py`（`KeyMap` クラス）で管理する。ユーザーは `%APPDATA%\ore-filer\keymap.toml` を作成して上書きでき、保存時にホットリロードされる。
+
+`eventFilter` は `self._keymap.action_for(event)` でアクション名を取得してディスパッチする。新しいキー操作を追加する場合は次の4箇所を編集する:
+1. `DEFAULT_BINDINGS`（`gui/keymap.py`）
+2. `ACTION_DESCRIPTIONS`（`gui/keymap.py`）
+3. `config/keymap.toml`（テンプレート）
+4. `eventFilter` の `elif action == "xxx":` 分岐（`gui/main_window.py`）
 
 ### アーカイブ対応形式
 
