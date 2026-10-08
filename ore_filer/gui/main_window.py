@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
 from ore_filer.gui.dialogs import (
 	ArchiveDialog,
 	BookmarkDialog,
+	BulkRenameDialog,
+	CompareSelectDialog,
 	confirm_list,
+	DirSizeThread,
 	FileInfoDialog,
 	FilterDialog,
 	HistoryDialog,
@@ -24,10 +27,11 @@ from ore_filer.gui.dialogs import (
 	ImageViewerDialog,
 	SearchDialog,
 	SortDialog,
+	TextViewerDialog,
 )
 from ore_filer.gui.context_menu import show_shell_context_menu
 from ore_filer.gui.pane import PaneWidget
-from ore_filer.settings import load_bookmarks, load_session, save_bookmarks, save_session
+from ore_filer.settings import load_bookmarks, load_config, load_session, save_bookmarks, save_config, save_session
 from ore_filer.updater import UpdateCheckThread, UpdateDownloadThread, install_update
 from ore_filer.services.file_operations import (
 	ArchiveEntry,
@@ -39,7 +43,11 @@ from ore_filer.services.file_operations import (
 	delete_paths,
 	trash_paths,
 	is_archive_path,
+	open_in_editor,
+	open_terminal,
+	read_text_preview,
 	rename_path,
+	rename_paths,
 	move_paths,
 	open_with_association,
 	create_archive,
@@ -196,6 +204,7 @@ class MainWindow(QMainWindow):
 		self.active_pane_index = 0
 		self._archive_thread: QThread | None = None
 		self._file_op_thread: FileOperationThread | None = None
+		self._dir_size_thread: DirSizeThread | None = None
 		self._pending_g = False
 
 		self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1154,6 +1163,33 @@ class MainWindow(QMainWindow):
 				for pane in self.panes:
 					pane.adjust_font_size(-1)
 				return True
+			elif event.key() == Qt.Key.Key_V and no_mod:
+				self.view_text()
+				return True
+			elif event.key() == Qt.Key.Key_E and no_mod:
+				self.open_editor()
+				return True
+			elif event.key() == Qt.Key.Key_E and \
+				_mods == Qt.KeyboardModifier.ShiftModifier:
+				self.choose_editor()
+				return True
+			elif event.key() == Qt.Key.Key_W and no_mod:
+				self.open_terminal_here()
+				return True
+			elif event.key() == Qt.Key.Key_R and \
+				_mods == Qt.KeyboardModifier.ShiftModifier:
+				self.bulk_rename()
+				return True
+			elif event.key() == Qt.Key.Key_X and no_mod:
+				self.compare_select()
+				return True
+			elif event.key() == Qt.Key.Key_I and \
+				_mods == Qt.KeyboardModifier.ShiftModifier:
+				self.calc_folder_size()
+				return True
+			elif event.text() == "*":
+				self.wildcard_select()
+				return True
 			elif event.text() == "~":
 				self.active_pane.navigate_to(Path.home())
 				return True
@@ -1339,6 +1375,207 @@ class MainWindow(QMainWindow):
 				f"{len(sources)}件をコピーしました。",
 				total=len(sources),
 			)
+
+	# ── テキストビューア ──────────────────────────────────────
+
+	def view_text(self) -> None:
+		path = self.focused_path()
+		if path is None or path.is_dir() or self.active_pane.is_archive_view():
+			return
+		try:
+			text, encoding = read_text_preview(path)
+		except ValueError as e:
+			QMessageBox.warning(self, "テキストビューア", str(e))
+			return
+		except OSError as e:
+			QMessageBox.warning(self, "テキストビューア", f"読み込みに失敗しました:\n{e}")
+			return
+		TextViewerDialog(path, text, encoding, self).exec()
+
+	# ── 外部エディタで開く ────────────────────────────────────
+
+	def open_editor(self) -> None:
+		path = self.focused_path()
+		if path is None:
+			return
+		config = load_config()
+		editor = config.get("editor", "")
+		if not editor:
+			editor = self._choose_editor()
+			if not editor:
+				return
+		try:
+			open_in_editor(path, editor)
+		except OSError as e:
+			QMessageBox.warning(self, "外部エディタ", f"エディタを起動できませんでした:\n{e}")
+
+	def _choose_editor(self) -> str:
+		from PySide6.QtWidgets import QFileDialog
+		exe, _ = QFileDialog.getOpenFileName(
+			self,
+			"エディタの実行ファイルを選択",
+			"C:\\",
+			"実行ファイル (*.exe)",
+		)
+		if exe:
+			config = load_config()
+			config["editor"] = exe
+			save_config(config)
+		return exe
+
+	def choose_editor(self) -> None:
+		"""設定済みエディタを変更する（Shift+E）。"""
+		exe = self._choose_editor()
+		if exe:
+			self.statusBar().showMessage(f"エディタを設定しました: {exe}", 5000)
+
+	# ── ターミナルを開く ──────────────────────────────────────
+
+	def open_terminal_here(self) -> None:
+		try:
+			open_terminal(self.active_pane.current_path)
+		except OSError as e:
+			QMessageBox.warning(self, "ターミナル", f"起動できませんでした:\n{e}")
+
+	# ── 一括リネーム ──────────────────────────────────────────
+
+	def bulk_rename(self) -> None:
+		paths = self.active_pane.selected_paths()
+		if not paths:
+			return
+		dialog = BulkRenameDialog(paths, self)
+		if dialog.exec() != QDialog.DialogCode.Accepted:
+			return
+		pairs = dialog.result_pairs()
+		if not pairs:
+			self.statusBar().showMessage("変更なし", 3000)
+			return
+		names_preview = [f"{p.name}  →  {n}" for p, n in pairs]
+		if not confirm_list(self, "一括リネーム確認", "次の項目をリネームしますか？", names_preview):
+			return
+		self._start_file_operation(
+			lambda p=pairs: rename_paths(p),
+			"リネームしています...",
+			f"{len(pairs)}件をリネームしました。",
+		)
+
+	# ── 左右ペイン比較選択 ────────────────────────────────────
+
+	def compare_select(self) -> None:
+		if self.left_pane.is_archive_view() or self.right_pane.is_archive_view():
+			return
+		if self.left_pane.has_search_results() or self.right_pane.has_search_results():
+			return
+		dialog = CompareSelectDialog(
+			str(self.left_pane.current_path),
+			str(self.right_pane.current_path),
+			self,
+		)
+		if dialog.exec() != QDialog.DialogCode.Accepted:
+			return
+		mode = dialog.mode()
+		if mode is None:
+			return
+
+		left_items = {p.name.casefold(): p for p in self.left_pane.current_path.iterdir()
+					  if not self.left_pane.current_path == p}
+		right_items = {p.name.casefold(): p for p in self.right_pane.current_path.iterdir()
+					   if not self.right_pane.current_path == p}
+
+		left_select: list[Path] = []
+		right_select: list[Path] = []
+
+		if mode == CompareSelectDialog.ONLY_LEFT:
+			left_select = [left_items[k] for k in left_items if k not in right_items]
+		elif mode == CompareSelectDialog.ONLY_RIGHT:
+			right_select = [right_items[k] for k in right_items if k not in left_items]
+		elif mode == CompareSelectDialog.SAME_NAME:
+			common = set(left_items) & set(right_items)
+			left_select = [left_items[k] for k in common]
+			right_select = [right_items[k] for k in common]
+		elif mode == CompareSelectDialog.NEWER:
+			for k in set(left_items) & set(right_items):
+				try:
+					lmt = left_items[k].stat().st_mtime
+					rmt = right_items[k].stat().st_mtime
+					if lmt >= rmt:
+						left_select.append(left_items[k])
+					else:
+						right_select.append(right_items[k])
+				except OSError:
+					pass
+		elif mode == CompareSelectDialog.DIFF_SIZE:
+			for k in set(left_items) & set(right_items):
+				try:
+					if left_items[k].stat().st_size != right_items[k].stat().st_size:
+						left_select.append(left_items[k])
+						right_select.append(right_items[k])
+				except OSError:
+					pass
+
+		if left_select:
+			self.left_pane.select_paths(left_select)
+		if right_select:
+			self.right_pane.select_paths(right_select)
+		total = len(left_select) + len(right_select)
+		self.statusBar().showMessage(f"比較選択: {total}件", 5000)
+
+	# ── フォルダサイズ計算 ────────────────────────────────────
+
+	def calc_folder_size(self) -> None:
+		if self._dir_size_thread is not None and self._dir_size_thread.isRunning():
+			return
+		targets = [p for p in self.active_pane.selected_paths() if p.is_dir()]
+		if not targets:
+			path = self.focused_path()
+			if path is not None and path.is_dir():
+				targets = [path]
+		if not targets:
+			return
+		self.statusBar().showMessage("フォルダサイズを計算しています...")
+		thread = DirSizeThread(targets, self)
+		thread.progress.connect(lambda msg: self.statusBar().showMessage(msg))
+		thread.finished_with.connect(self._on_dir_size_finished)
+		thread.finished.connect(self._on_dir_size_thread_finished)
+		self._dir_size_thread = thread
+		thread.start()
+
+	def _on_dir_size_finished(self, results: list) -> None:
+		self.statusBar().clearMessage()
+		lines = []
+		for path, total_bytes, total_files in results:
+			lines.append(f"{path.name}\n  {_fmt_size(total_bytes)}  ({total_files:,} ファイル)")
+		QMessageBox.information(
+			self,
+			"フォルダサイズ",
+			"\n\n".join(lines),
+		)
+
+	def _on_dir_size_thread_finished(self) -> None:
+		thread = self.sender()
+		if thread is self._dir_size_thread:
+			self._dir_size_thread = None
+		if isinstance(thread, QThread):
+			thread.deleteLater()
+
+	# ── ワイルドカード選択 ────────────────────────────────────
+
+	def wildcard_select(self) -> None:
+		if self.active_pane.is_archive_view():
+			return
+		text, ok = QInputDialog.getText(
+			self,
+			"ワイルドカード選択",
+			"パターン（複数は ; 区切り）:",
+			text="*.",
+		)
+		if not ok or not text.strip():
+			return
+		patterns = [p for p in text.split(";") if p.strip()]
+		if not patterns:
+			return
+		count = self.active_pane.select_by_pattern(patterns)
+		self.statusBar().showMessage(f"ワイルドカード選択: {count}件", 5000)
 
 	def _jump_to_input_path(self) -> None:
 		text, ok = QInputDialog.getText(

@@ -1072,3 +1072,37 @@ class PaneWidget(QWidget):
                 except OSError:
                     pass
         return total
+
+    def select_paths(self, paths: list[Path]) -> None:
+        """指定パスに一致する行を選択に追加する（名前は casefold で比較）。"""
+        targets = {p.name.casefold() for p in paths}
+        sel = self.file_view.selectionModel()
+        for index in self._iter_selectable_indexes(include_dirs=True):
+            path = self.path_from_index(index)
+            if path and path.name.casefold() in targets:
+                sel.select(
+                    index,
+                    QItemSelectionModel.SelectionFlag.Select
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+        self.file_view.viewport().update()
+
+    def select_by_pattern(self, patterns: list[str]) -> int:
+        """ワイルドカードパターンに一致する行を選択し、選択件数を返す。"""
+        import fnmatch
+        count = 0
+        sel = self.file_view.selectionModel()
+        for index in self._iter_selectable_indexes(include_dirs=True):
+            path = self.path_from_index(index)
+            if path is None:
+                continue
+            name_lower = path.name.casefold()
+            if any(fnmatch.fnmatch(name_lower, pat.strip().casefold()) for pat in patterns):
+                sel.select(
+                    index,
+                    QItemSelectionModel.SelectionFlag.Select
+                    | QItemSelectionModel.SelectionFlag.Rows,
+                )
+                count += 1
+        self.file_view.viewport().update()
+        return count

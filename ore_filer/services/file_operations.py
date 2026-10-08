@@ -1,4 +1,10 @@
 import os
+import re
+import shlex
+import subprocess
+import sys
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
@@ -698,3 +704,123 @@ def move_paths(
         shutil.move(source, target)
         if progress_cb:
             progress_cb(i + 1, total)
+
+
+# ── 追加機能 ──────────────────────────────────────────────
+
+
+def open_in_editor(path: Path, editor: str) -> None:
+    """設定されたエディタでファイルを開く。"""
+    subprocess.Popen(
+        [editor, str(path)],
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+
+
+def open_terminal(directory: Path) -> None:
+    """指定フォルダで Windows Terminal / PowerShell を開く。"""
+    if shutil.which("wt"):
+        subprocess.Popen(
+            ["wt", "-d", str(directory)],
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+    else:
+        flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+        subprocess.Popen(["powershell.exe"], cwd=str(directory), creationflags=flags)
+
+
+def rename_paths(pairs: list[tuple[Path, str]]) -> None:
+    """複数ファイルを一括リネームする。名前の入れ替えも安全に行う。
+
+    2段階方式:
+    1. すべてを一時名にリネームする
+    2. 一時名から最終名にリネームする
+    """
+    tmp_map: list[tuple[Path, Path]] = []
+    for source, new_name in pairs:
+        tmp_name = source.parent / f"__ore_filer_tmp_{uuid.uuid4().hex}_{source.name}"
+        source.rename(tmp_name)
+        tmp_map.append((tmp_name, source.parent / new_name))
+    for tmp_path, final_path in tmp_map:
+        tmp_path.rename(final_path)
+
+
+def calc_dir_size(
+    path: Path,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> tuple[int, int]:
+    """フォルダの合計サイズ（バイト）とファイル数を返す。
+
+    アクセスできないエントリはスキップする。
+    is_cancelled() が True を返すと中断し、その時点の値を返す。
+    """
+    total_bytes = 0
+    total_files = 0
+    stack = [path]
+    while stack:
+        if is_cancelled is not None and is_cancelled():
+            break
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    if is_cancelled is not None and is_cancelled():
+                        return total_bytes, total_files
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            total_bytes += entry.stat().st_size
+                            total_files += 1
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return total_bytes, total_files
+
+
+_TEXT_LIMIT = 5 * 1024 * 1024  # 5 MB
+
+
+def read_text_preview(path: Path, limit: int = _TEXT_LIMIT) -> tuple[str, str]:
+    """テキストファイルを読み込んで (本文, 文字コード名) を返す。
+
+    バイナリ（NUL バイトを含む）と判定した場合は ValueError を送出する。
+    """
+    raw = path.read_bytes()
+    truncated = len(raw) > limit
+    if truncated:
+        raw = raw[:limit]
+
+    # バイナリ判定
+    if b"\x00" in raw:
+        raise ValueError(f"バイナリファイルです: {path.name}")
+
+    # BOM 判定
+    for encoding, bom in [
+        ("utf-8-sig", b"\xef\xbb\xbf"),
+        ("utf-16-le", b"\xff\xfe"),
+        ("utf-16-be", b"\xfe\xff"),
+    ]:
+        if raw.startswith(bom):
+            text = raw.decode(encoding, errors="replace")
+            label = encoding
+            if truncated:
+                text += "\n\n[--- ファイルが大きいため、ここで表示を打ち切りました ---]"
+            return text, label
+
+    # UTF-8 → CP932 の順で試す
+    for encoding in ("utf-8", "cp932"):
+        try:
+            text = raw.decode(encoding)
+            if truncated:
+                text += "\n\n[--- ファイルが大きいため、ここで表示を打ち切りました ---]"
+            return text, encoding
+        except UnicodeDecodeError:
+            pass
+
+    # フォールバック
+    text = raw.decode("utf-8", errors="replace")
+    if truncated:
+        text += "\n\n[--- ファイルが大きいため、ここで表示を打ち切りました ---]"
+    return text, "utf-8 (fallback)"
