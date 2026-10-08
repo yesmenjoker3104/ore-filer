@@ -261,8 +261,17 @@ class KeyMap:
 
     def action_for(self, event: QKeyEvent) -> str | None:
         """イベントからアクション名を逆引きする。見つからなければ None。"""
-        key_spec: KeySpec = (Qt.Key(event.key()), event.modifiers())
-        return self._reverse.get(key_spec)
+        mods = event.modifiers()
+        key = Qt.Key(event.key())
+        result = self._reverse.get((key, mods))
+        if result is not None:
+            return result
+        # ?、*、+、~ のように入力にShiftが必要な非英字キーの場合、
+        # ShiftModifierを無視して再検索する（"Question"→? など）
+        is_letter = Qt.Key.Key_A <= key <= Qt.Key.Key_Z
+        if mods == Qt.KeyboardModifier.ShiftModifier and not is_letter:
+            return self._reverse.get((key, Qt.KeyboardModifier.NoModifier))
+        return None
 
     def all_bindings(self) -> list[tuple[str, str, str]]:
         """(action, key_spec_str, description) のリストを返す（表示用）。"""

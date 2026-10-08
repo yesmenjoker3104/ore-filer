@@ -693,14 +693,37 @@ class PaneWidget(QWidget):
     def show_search_results(self, paths: list[str | Path]) -> None:
         self._search_results = [Path(path).expanduser().resolve() for path in paths]
         self.search_model.clear()
-        self.search_model.setHorizontalHeaderLabels(["名前"])
+        self.search_model.setHorizontalHeaderLabels(["名前", "サイズ", "更新日時"])
         icon_provider = QFileIconProvider()
         for path in self._search_results:
-            relative_path = path.relative_to(self.current_path)
-            item = QStandardItem(str(relative_path))
-            item.setIcon(icon_provider.icon(QFileInfo(str(path))))
-            item.setData(str(path), Qt.ItemDataRole.UserRole)
-            self.search_model.appendRow(item)
+            try:
+                relative_path = path.relative_to(self.current_path)
+            except ValueError:
+                relative_path = path
+            fi = QFileInfo(str(path))
+            # 列0: 名前 + アイコン + フルパス
+            name_item = QStandardItem(str(relative_path))
+            name_item.setIcon(icon_provider.icon(fi))
+            name_item.setData(str(path), Qt.ItemDataRole.UserRole)
+            # 列1: サイズ（フォルダは空欄）
+            if fi.isDir():
+                size_text = ""
+            else:
+                sz = fi.size()
+                if sz < 1024:
+                    size_text = f"{sz} B"
+                elif sz < 1024 ** 2:
+                    size_text = f"{sz / 1024:.1f} KB"
+                elif sz < 1024 ** 3:
+                    size_text = f"{sz / 1024 ** 2:.1f} MB"
+                else:
+                    size_text = f"{sz / 1024 ** 3:.2f} GB"
+            size_item = QStandardItem(size_text)
+            size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            # 列2: 更新日時
+            dt = fi.lastModified()
+            date_item = QStandardItem(dt.toString("yyyy-MM-dd HH:mm"))
+            self.search_model.appendRow([name_item, size_item, date_item])
 
         self.search_filter_model.set_query(self.filter_model.query())
         self.search_filter_model.set_sort_mode(self._sort_mode)
@@ -709,6 +732,10 @@ class PaneWidget(QWidget):
         self.file_view.setRootIndex(QModelIndex())
         self.search_filter_model.sort(0, self._sort_order)
         self.file_view.selectionModel().clearSelection()
+        header = self.file_view.header()
+        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, header.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, header.ResizeMode.ResizeToContents)
         if self.search_filter_model.rowCount() > 0:
             self.file_view.setCurrentIndex(self.search_filter_model.index(0, 0))
         self._update_path_label()
@@ -722,6 +749,8 @@ class PaneWidget(QWidget):
         self.file_view.setRootIndex(QModelIndex())
         self.file_view.setModel(self.filter_model)
         self._reconnect_selection_signal()
+        header = self.file_view.header()
+        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
         root_index = self.filter_model.mapFromSource(
             self.model.index(str(self.current_path))
         )
