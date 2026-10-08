@@ -118,6 +118,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "explorer":         "エクスプローラーで開く",
     "toggle_hidden":    "隠しファイル表示を切り替える",
     "diff":             "左右ペインのファイルを差分表示",
+    "git_menu":         "Git メニュー",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -179,6 +180,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "explorer":         "Shift+W",
     "toggle_hidden":    "Shift+H",
     "diff":             "Shift+X",
+    "git_menu":         "Ctrl+Shift+G",
 }
 
 

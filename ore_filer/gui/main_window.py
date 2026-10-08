@@ -23,6 +23,10 @@ from ore_filer.gui.dialogs import (
 	DirSizeThread,
 	FileInfoDialog,
 	FilterDialog,
+	GitCommandThread,
+	GitCommitDialog,
+	GitLogDialog,
+	GitStatusThread,
 	GrepDialog,
 	HistoryDialog,
 	IMAGE_EXTENSIONS,
@@ -32,6 +36,7 @@ from ore_filer.gui.dialogs import (
 	SortDialog,
 	TextViewerDialog,
 )
+from ore_filer.services import git_service
 from ore_filer.gui.keymap import KeyMap, user_keymap_file
 from ore_filer.gui.context_menu import show_shell_context_menu
 from ore_filer.gui.pane import PaneWidget
@@ -248,10 +253,19 @@ class MainWindow(QMainWindow):
 		for pane in self.panes:
 			pane.set_show_hidden(_show_hidden)
 
+		self._git_status_threads: dict[int, GitStatusThread] = {}
+		for pane in self.panes:
+			pane.path_changed.connect(
+				lambda _path, p=pane: self._refresh_git_status(p)
+			)
+
 		self._last_update_check: str = ""
 		self._update_check_thread: UpdateCheckThread | None = None
 		self._update_download_thread: UpdateDownloadThread | None = None
 		QTimer.singleShot(3000, self._check_for_updates)
+		# 起動時に両ペインの Git 状態を取得
+		for pane in self.panes:
+			self._refresh_git_status(pane)
 
 	@property
 	def active_pane(self) -> PaneWidget:
@@ -1189,6 +1203,9 @@ class MainWindow(QMainWindow):
 			elif action == "diff":
 				self.diff_files()
 				return True
+			elif action == "git_menu":
+				self.show_git_menu()
+				return True
 			elif action == "keymap_help":
 				self.show_keymap_help()
 				return True
@@ -1662,6 +1679,292 @@ class MainWindow(QMainWindow):
 			QMessageBox.warning(self, "差分表示", f"読み込みに失敗しました:\n{e}")
 			return
 		DiffDialog(left_path.name, right_path.name, diff, self).exec()
+
+	# ── Git 操作 ─────────────────────────────────────────────
+
+	def _refresh_git_status(self, pane: PaneWidget) -> None:
+		"""バックグラウンドで Git 状態を取得してペインに反映する。"""
+		if not git_service.is_available():
+			pane.set_git_info(None, {})
+			return
+		pane_id = id(pane)
+		pane_path = pane.current_path
+		thread = GitStatusThread(pane_path, self)
+		thread.finished_with.connect(
+			lambda result_path, branch, status, p=pane, pp=str(pane_path):
+				self._on_git_status_ready(p, pp, result_path, branch, status)
+		)
+
+		def _cleanup(pid=pane_id, t=thread):
+			if self._git_status_threads.get(pid) is t:
+				del self._git_status_threads[pid]
+			t.deleteLater()
+
+		thread.finished.connect(_cleanup)
+		self._git_status_threads[pane_id] = thread
+		thread.start()
+
+	def _on_git_status_ready(
+		self,
+		pane: PaneWidget,
+		expected_path: str,
+		result_path: str,
+		branch,
+		status_map: dict,
+	) -> None:
+		"""GitStatusThread の完了時コールバック。"""
+		if str(pane.current_path) != expected_path:
+			return  # ペインが既に別のパスへ移動済み
+		pane.set_git_info(branch, status_map)
+
+	def _git_repo(self) -> "Path | None":
+		"""アクティブペインの Git リポジトリルートを返す。なければ None。"""
+		if not git_service.is_available():
+			return None
+		return git_service.find_repo_root(self.active_pane.current_path)
+
+	def show_git_menu(self) -> None:
+		"""Ctrl+Shift+G: Git メニューを表示する。"""
+		from PySide6.QtWidgets import QMenu
+
+		if not git_service.is_available():
+			QMessageBox.information(self, "Git", "git がインストールされていません。")
+			return
+		repo = git_service.find_repo_root(self.active_pane.current_path)
+		if repo is None:
+			QMessageBox.information(self, "Git", "Git リポジトリではありません。")
+			return
+
+		menu = QMenu(self)
+		menu.addAction("ステージ (&A)", self.git_stage)
+		menu.addAction("ステージ解除 (&R)", self.git_unstage)
+		menu.addSeparator()
+		menu.addAction("コミット... (&C)", self.git_commit)
+		menu.addSeparator()
+		menu.addAction("pull (&L)", self.git_pull)
+		menu.addAction("push (&P)", self.git_push)
+		menu.addSeparator()
+		menu.addAction("差分 (&D)", self.git_diff)
+		menu.addAction("ログ (&G)", self.git_log)
+		menu.addSeparator()
+		menu.addAction("ブランチ切替 (&B)", self.git_switch_branch)
+
+		pos = self.active_pane.file_view.mapToGlobal(
+			self.active_pane.file_view.rect().center()
+		)
+		menu.exec(pos)
+
+	def git_stage(self) -> None:
+		"""選択/カーソル項目をステージする。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		paths = self.active_pane.selected_paths()
+		if not paths:
+			path = self.focused_path()
+			if path is None:
+				return
+			paths = [path]
+		try:
+			git_service.stage(repo, paths)
+		except Exception as e:
+			QMessageBox.warning(self, "Git ステージ", f"ステージに失敗しました:\n{e}")
+			return
+		self._refresh_git_status(self.active_pane)
+		self.statusBar().showMessage(f"{len(paths)} 件をステージしました", 3000)
+
+	def git_unstage(self) -> None:
+		"""選択/カーソル項目のステージを解除する。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		paths = self.active_pane.selected_paths()
+		if not paths:
+			path = self.focused_path()
+			if path is None:
+				return
+			paths = [path]
+		try:
+			git_service.unstage(repo, paths)
+		except Exception as e:
+			QMessageBox.warning(self, "Git ステージ解除", f"ステージ解除に失敗しました:\n{e}")
+			return
+		self._refresh_git_status(self.active_pane)
+		self.statusBar().showMessage(f"{len(paths)} 件のステージを解除しました", 3000)
+
+	def git_commit(self) -> None:
+		"""ステージ済みファイルをコミットするダイアログを開く。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		try:
+			raw_map = git_service.status(repo)
+		except Exception as e:
+			QMessageBox.warning(self, "Git コミット", str(e))
+			return
+
+		staged: list[str] = []
+		for path, xy in raw_map.items():
+			if (
+				len(xy) >= 1
+				and xy[0] not in (" ", "?", "!")
+				and xy != "D~"
+				and path.is_file()
+			):
+				try:
+					staged.append(str(path.relative_to(repo)))
+				except ValueError:
+					staged.append(path.name)
+
+		if not staged:
+			QMessageBox.information(self, "Git コミット", "ステージされた変更がありません。")
+			return
+
+		dialog = GitCommitDialog(staged, self)
+		if dialog.exec() != QDialog.DialogCode.Accepted:
+			return
+		msg = dialog.commit_message()
+		if not msg:
+			return
+
+		thread = GitCommandThread(lambda r=repo, m=msg: git_service.commit(r, m), self)
+		thread.succeeded.connect(lambda out: self._on_git_command_done("コミット", out))
+		thread.failed.connect(lambda err: self._on_git_command_failed("コミット", err))
+		thread.finished.connect(thread.deleteLater)
+		thread.start()
+
+	def git_pull(self) -> None:
+		"""git pull を実行する。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		confirm = QMessageBox.question(
+			self, "git pull", "リモートから変更を取得しますか？",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		self.statusBar().showMessage("git pull 実行中...")
+		thread = GitCommandThread(lambda r=repo: git_service.pull(r), self)
+		thread.succeeded.connect(lambda out: self._on_git_sync_done("pull", out))
+		thread.failed.connect(lambda err: self._on_git_command_failed("pull", err))
+		thread.finished.connect(thread.deleteLater)
+		thread.start()
+
+	def git_push(self) -> None:
+		"""git push を実行する。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		confirm = QMessageBox.question(
+			self, "git push", "リモートへ変更を送信しますか？",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		self.statusBar().showMessage("git push 実行中...")
+		thread = GitCommandThread(lambda r=repo: git_service.push(r), self)
+		thread.succeeded.connect(lambda out: self._on_git_sync_done("push", out))
+		thread.failed.connect(lambda err: self._on_git_command_failed("push", err))
+		thread.finished.connect(thread.deleteLater)
+		thread.start()
+
+	def git_diff(self) -> None:
+		"""カーソルファイルの git diff HEAD を表示する。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		path = self.focused_path()
+		if path is None or path.is_dir():
+			QMessageBox.information(self, "Git 差分", "ファイルを選択してください。")
+			return
+		try:
+			diff_text = git_service.diff(repo, path)
+		except Exception as e:
+			QMessageBox.warning(self, "Git 差分", str(e))
+			return
+		DiffDialog("HEAD", path.name, diff_text, self).exec()
+
+	def git_log(self) -> None:
+		"""Git ログを表示し、選択したコミットの差分を表示する。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		try:
+			entries = git_service.log(repo)
+		except Exception as e:
+			QMessageBox.warning(self, "Git ログ", str(e))
+			return
+		if not entries:
+			QMessageBox.information(self, "Git ログ", "コミット履歴がありません。")
+			return
+
+		dialog = GitLogDialog(entries, self)
+		if dialog.exec() == QDialog.DialogCode.Accepted:
+			commit_hash = dialog.selected_commit()
+			if commit_hash:
+				try:
+					diff_text = git_service.show(repo, commit_hash)
+					DiffDialog(commit_hash, "show", diff_text, self).exec()
+				except Exception as e:
+					QMessageBox.warning(self, "git show", str(e))
+
+	def git_switch_branch(self) -> None:
+		"""ブランチ切替ダイアログを開く。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		try:
+			branch_list = git_service.branches(repo)
+		except Exception as e:
+			QMessageBox.warning(self, "ブランチ切替", str(e))
+			return
+		if not branch_list:
+			QMessageBox.information(self, "ブランチ切替", "ブランチが見つかりません。")
+			return
+
+		current = branch_list[0] if branch_list else ""
+		selected, ok = QInputDialog.getItem(
+			self, "ブランチ切替", "切り替え先のブランチ:", branch_list, 0, False,
+		)
+		if not ok or selected == current:
+			return
+
+		confirm = QMessageBox.question(
+			self, "ブランチ切替",
+			f"ブランチを '{selected}' に切り替えますか？",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		try:
+			git_service.switch(repo, selected)
+		except Exception as e:
+			QMessageBox.warning(self, "ブランチ切替", f"切り替えに失敗しました:\n{e}")
+			return
+		for pane in self.panes:
+			self._refresh_git_status(pane)
+		self.statusBar().showMessage(f"ブランチを '{selected}' に切り替えました", 5000)
+
+	def _on_git_command_done(self, op: str, output: str) -> None:
+		for pane in self.panes:
+			self._refresh_git_status(pane)
+		self.statusBar().showMessage(f"Git {op} 完了", 5000)
+
+	def _on_git_sync_done(self, op: str, output: str) -> None:
+		for pane in self.panes:
+			pane.reload()
+			self._refresh_git_status(pane)
+		self.statusBar().showMessage(f"git {op} 完了", 5000)
+		if output.strip():
+			QMessageBox.information(self, f"git {op}", output.strip())
+
+	def _on_git_command_failed(self, op: str, error: str) -> None:
+		self.statusBar().clearMessage()
+		QMessageBox.warning(self, f"Git {op} エラー", error)
 
 	# ── キーマップウォッチャー ────────────────────────────────
 

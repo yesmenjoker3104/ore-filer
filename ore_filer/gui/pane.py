@@ -35,6 +35,21 @@ from ore_filer.services.file_operations import (
 )
 
 
+def _git_status_color(xy: str) -> "QColor | None":
+    """git XY コードから色帯の色を返す。None は色帯なし。"""
+    if xy == "D~":
+        return QColor(230, 140, 40, 180)    # 橙: フォルダに変更あり
+    if xy == "??":
+        return QColor(128, 128, 128, 180)   # 灰: 未追跡
+    if "D" in xy:
+        return QColor(220, 50, 50, 180)     # 赤: 削除
+    if len(xy) >= 1 and xy[0] == "A":
+        return QColor(40, 180, 40, 180)     # 緑: 追加（ステージ済み新規）
+    if "M" in xy:
+        return QColor(230, 140, 40, 180)    # 橙: 変更
+    return None
+
+
 def _fmt_size(size: int) -> str:
     if size < 1024:
         return f"{size} B"
@@ -64,6 +79,19 @@ class FileItemDelegate(QStyledItemDelegate):
                 painter.save()
                 painter.fillRect(option.rect, QColor(150, 110, 20, 90))
                 painter.restore()
+
+        # Git 状態の色帯（列0のみ、通常ディレクトリモード）
+        if index.column() == 0 and hasattr(pane, "git_status") and pane.git_status:
+            path = pane.path_from_index(index)
+            if path is not None:
+                xy = pane.git_status.get(str(path).casefold())
+                if xy:
+                    color = _git_status_color(xy)
+                    if color is not None:
+                        painter.save()
+                        band = option.rect.adjusted(0, 0, -(option.rect.width() - 4), 0)
+                        painter.fillRect(band, color)
+                        painter.restore()
 
         if (
             view.cursor_visible
@@ -429,6 +457,10 @@ class PaneWidget(QWidget):
         self._cursor_memory: dict[Path, str] = {}
         self._pending_focus: str | None = None
 
+        # Git 状態（casefolded パス文字列 → XY コード）
+        self.git_status: dict[str, str] = {}
+        self.git_branch: str | None = None
+
         self._font_size: int = self.font().pointSize()
         if self._font_size <= 0:
             self._font_size = 10
@@ -537,7 +569,15 @@ class PaneWidget(QWidget):
                 disk_info = f"  （空き {_fmt_size(free)} / {_fmt_size(total)}）"
             else:
                 disk_info = ""
-            self.path_label.setText(f"{prefix} {self.current_path}{disk_info}")
+            branch_info = f"  [git: {self.git_branch}]" if self.git_branch else ""
+            self.path_label.setText(f"{prefix} {self.current_path}{disk_info}{branch_info}")
+
+    def set_git_info(self, branch: str | None, status_map: dict[str, str]) -> None:
+        """Git の状態情報を更新してパス欄とリストを再描画する。"""
+        self.git_status = status_map
+        self.git_branch = branch
+        self._update_path_label()
+        self.file_view.viewport().update()
 
     def set_sort(self, mode: str, order: Qt.SortOrder) -> None:
         self._sort_mode = mode

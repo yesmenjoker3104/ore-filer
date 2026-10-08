@@ -45,6 +45,7 @@ GUI・CLI・プラグインはすべて `services/` を経由してファイル�
 - **`gui/main_window.py`** — 左右ペインの管理、`eventFilter` でのキーハンドリング、ファイル操作の確認ダイアログ。長時間処理は `QThread` サブクラス（`ArchiveThread` 等）で非同期実行
 - **`gui/pane.py`** — 1ペインのUI。`QFileSystemModel` + `QTreeView` でファイル一覧を表示。アーカイブ内閲覧モードと通常ディレクトリモードを切り替える
 - **`services/file_operations.py`** — コピー・移動・削除・アーカイブ作成/展開の本体。zip/jar/apk は `pyzipper`、7z は `py7zr` を使用
+- **`services/git_service.py`** — Git 操作サービス。`subprocess` で git CLI を呼び出す。依存パッケージ不要。`GIT_TERMINAL_PROMPT=0` で認証プロンプト待ちによるフリーズを防ぐ
 - **`settings.py`** — セッション情報（ディレクトリ履歴）を `%APPDATA%\ore-filer\session.json` に、アプリ設定（エディタパス・隠しファイル表示等）を `%APPDATA%\ore-filer\config.json` に保存・復元
 
 ### キーマップ
