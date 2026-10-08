@@ -808,7 +808,9 @@ class PaneWidget(QWidget):
         if self._search_results is not None:
             if index.model() is not self.search_filter_model:
                 return None
-            value = index.data(Qt.ItemDataRole.UserRole)
+            # UserRole は列0にのみ設定されているため列0に正規化する
+            col0 = index.sibling(index.row(), 0)
+            value = col0.data(Qt.ItemDataRole.UserRole)
             return Path(value) if value else None
         if index.model() is not self.filter_model:
             return None

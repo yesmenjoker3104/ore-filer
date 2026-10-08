@@ -269,7 +269,9 @@ class KeyMap:
 
     def action_for(self, event: QKeyEvent) -> str | None:
         """イベントからアクション名を逆引きする。見つからなければ None。"""
-        mods = event.modifiers()
+        from PySide6.QtGui import QGuiApplication
+        # Windows では event.modifiers() に Ctrl が欠けることがあるため補完する
+        mods = event.modifiers() | QGuiApplication.keyboardModifiers()
         key = Qt.Key(event.key())
         result = self._reverse.get((key, mods))
         if result is not None:
