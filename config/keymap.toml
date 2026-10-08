@@ -87,5 +87,5 @@ toggle_hidden   = "Shift+H"         # 隠しファイル表示を切り替える
 
 # ── システム ───────────────────────────────────────────────
 keymap_help     = "Question"        # キー一覧を表示
-update_check    = "Ctrl+Question"   # バージョン情報 / アップデートを確認
+update_check    = "Ctrl+Shift+U"    # バージョン情報 / アップデートを確認
 quit            = "Q"               # アプリを終了

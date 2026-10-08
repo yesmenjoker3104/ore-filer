@@ -170,7 +170,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "font_larger":      "Plus",
     "font_smaller":     "Minus",
     "keymap_help":      "Question",
-    "update_check":     "Ctrl+Question",
+    "update_check":     "Ctrl+Shift+U",
     "quit":             "Q",
     "expand_tree":      "T",
     "refresh":          "F5",
