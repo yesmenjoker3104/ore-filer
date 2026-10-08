@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 	QTableWidget,
 	QTableWidgetItem,
     QTextBrowser,
+    QTextEdit,
 	QVBoxLayout,
 	QWidget,
 )
@@ -781,7 +782,7 @@ class TextViewerDialog(QDialog):
             block = doc.findBlockByLineNumber(lineno - 1)
             if not block.isValid():
                 continue
-            sel = QPlainTextEdit.ExtraSelection()
+            sel = QTextEdit.ExtraSelection()
             cur = QTextCursor(block)
             cur.select(QTextCursor.SelectionType.LineUnderCursor)
             sel.cursor = cur
@@ -835,7 +836,7 @@ class TextViewerDialog(QDialog):
             cursor = doc.find(text, cursor)
             if cursor.isNull():
                 break
-            sel = QPlainTextEdit.ExtraSelection()
+            sel = QTextEdit.ExtraSelection()
             sel.cursor = cursor
             sel.format = fmt
             self._search_selections.append(sel)
@@ -1449,7 +1450,7 @@ class DiffDialog(QDialog):
             else:
                 block = block.next()
                 continue
-            sel = QPlainTextEdit.ExtraSelection()
+            sel = QTextEdit.ExtraSelection()
             cur = QTextCursor(block)
             cur.select(QTextCursor.SelectionType.LineUnderCursor)
             sel.cursor = cur
