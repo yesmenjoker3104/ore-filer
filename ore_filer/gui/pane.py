@@ -950,6 +950,22 @@ class PaneWidget(QWidget):
                 self.file_view.setCurrentIndex(last)
                 self.file_view.scrollTo(last)
 
+    def move_page_up(self) -> None:
+        """カーソルを1ページ分上へ移動する。"""
+        self._move_page(QAbstractItemView.CursorAction.MovePageUp)
+
+    def move_page_down(self) -> None:
+        """カーソルを1ページ分下へ移動する。"""
+        self._move_page(QAbstractItemView.CursorAction.MovePageDown)
+
+    def _move_page(self, action: QAbstractItemView.CursorAction) -> None:
+        index = self.file_view.moveCursor(
+            action,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        if index.isValid():
+            self.file_view.setCurrentIndex(index)
+
     def _on_double_clicked(self, index: QModelIndex) -> None:
         if self.is_archive_view():
             entry = self.entry_from_index(index)

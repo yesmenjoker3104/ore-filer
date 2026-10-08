@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 	QSpinBox,
 	QTableWidget,
 	QTableWidgetItem,
+    QTextBrowser,
 	QVBoxLayout,
 	QWidget,
 )
@@ -565,7 +566,9 @@ IMAGE_EXTENSIONS = {
     ".bmp", ".gif", ".jpg", ".jpeg", ".png",
     ".tga", ".tif", ".tiff", ".webp",
 }
-
+MARKDOWN_EXTENSIONS = {
+    ".md", ".markdown", ".mdown", ".mkd",
+}
 
 class ImageViewerDialog(QDialog):
     def __init__(self, paths: list[Path], index: int, parent=None):
@@ -672,6 +675,37 @@ def confirm_list(
 
     dialog.resize(520, 420)
     return dialog.exec() == QDialog.DialogCode.Accepted
+
+# ── マークダウンビューア ──────────────────────────────────────
+class MarkdownViewerDialog(QDialog):
+    def __init__(
+        self,
+        path: Path,
+        text: str,
+        encoding: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle(f"MarkdownViewer - {path.name}  [{encoding}]")
+        self.resize(900, 650)
+
+        viewer = QTextBrowser(self)
+        viewer.setOpenExternalLinks(True)
+        viewer.setMarkdown(text)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
+        layout.addWidget(viewer)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (
+             Qt.Key.Key_Escape,
+             Qt.Key.Key_Q,
+             ):
+            self.accept()
+            return
+        super().keyPressEvent(event)
 
 
 # ── テキストビューア ──────────────────────────────────────
