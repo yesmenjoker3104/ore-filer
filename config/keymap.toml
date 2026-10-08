@@ -1,0 +1,82 @@
+# ore-filer キーマップ設定テンプレート
+#
+# このファイルをコピーして
+#   %APPDATA%\ore-filer\keymap.toml
+# に置くと、アプリ起動時および保存時に自動で反映されます（ホットリロード）。
+#
+# 書式: action = "Key"  または  action = "Modifier+Key"
+# Modifier: Ctrl / Shift / Alt（複数可: "Ctrl+Shift+C"）
+# Key: A-Z, 0-9, F1-F12, Return, Backspace, Delete, Space, Tab, Escape,
+#      Up, Down, Left, Right, Home, End, PageUp, PageDown,
+#      Plus, Minus, Asterisk, Backslash, Slash, Question, Equal, AsciiTilde
+
+[keys]
+# ── ナビゲーション ──────────────────────────────────────────
+enter           = "Return"          # フォルダを開く / アーカイブを開く
+execute         = "Ctrl+Return"     # 関連付け実行
+parent          = "Backspace"       # 親フォルダへ
+switch_pane     = "Tab"             # ペインを切り替える
+go_first        = "G"               # 先頭へ（gg）
+go_last         = "Shift+G"         # 末尾へ
+home_dir        = "AsciiTilde"      # ホームフォルダへ
+jump_path       = "Shift+J"         # パスを入力して移動
+sync_panes      = "O"               # 相手ペインのパスに移動
+sync_other      = "Shift+O"         # 相手ペインをこちらに合わせる
+drive           = "D"               # ドライブ選択
+expand_tree     = "T"               # ツリーを展開/折りたたむ
+
+# ── ファイル操作 ────────────────────────────────────────────
+copy            = "C"               # コピー
+copy_names      = "Ctrl+C"          # ファイル名をクリップボードへ
+copy_paths      = "Ctrl+Shift+C"    # フルパスをクリップボードへ
+move            = "M"               # 移動 / 新規フォルダ
+delete          = "K"               # 完全削除
+trash           = "Shift+K"         # ごみ箱へ移動
+rename          = "R"               # 名前の変更
+bulk_rename     = "Shift+R"         # 一括リネーム
+archive         = "P"               # アーカイブ作成
+extract         = "U"               # アーカイブ展開
+
+# ── 選択 ───────────────────────────────────────────────────
+select_down     = "Space"           # 選択してカーソルを下へ
+select_up       = "Shift+Space"     # 選択してカーソルを上へ
+range_select    = "Ctrl+Space"      # 範囲選択（アンカー）
+select_all_files = "A"              # ファイルをすべて選択
+select_all      = "Shift+A"         # ファイル＋フォルダをすべて選択
+deselect        = "End"             # 選択をすべて解除
+wildcard        = "Asterisk"        # ワイルドカード選択
+compare         = "X"               # 左右ペイン比較選択
+
+# ── 検索・フィルター ────────────────────────────────────────
+filter          = "F"               # インクリメンタルフィルター
+search          = "Shift+F"         # ファイル名検索
+grep            = "Ctrl+G"          # テキスト GREP
+
+# ── 表示・情報 ─────────────────────────────────────────────
+sort            = "S"               # ソート
+reload          = "Shift+End"       # 再読み込み
+refresh         = "F5"              # F5 で再読み込み
+file_info       = "I"               # ファイル情報
+folder_size     = "Shift+I"         # フォルダサイズ計算
+view_text       = "V"               # テキストビューア
+context_menu    = "Backslash"       # シェルコンテキストメニュー
+center_splitter = "Equal"           # スプリッターを中央に
+font_larger     = "Plus"            # フォントを大きく
+font_smaller    = "Minus"           # フォントを小さく
+
+# ── 外部連携 ───────────────────────────────────────────────
+open_editor     = "E"               # 外部エディタで開く
+set_editor      = "Shift+E"         # エディタを設定
+terminal        = "W"               # ターミナルを開く
+
+# ── ブックマーク・履歴 ──────────────────────────────────────
+history         = "H"               # フォルダ履歴
+bookmark        = "B"               # ブックマーク（カレント）
+bookmark_all    = "Shift+B"         # ブックマーク（全体）
+bookmark_add    = "Ctrl+B"          # ブックマークに追加
+
+# ── システム ───────────────────────────────────────────────
+keymap_help     = "Question"        # キー一覧を表示
+version_info    = "Ctrl+Question"   # バージョン情報
+update_check    = "Ctrl+Question"   # アップデートを確認
+quit            = "Q"               # アプリを終了
