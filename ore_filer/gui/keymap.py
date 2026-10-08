@@ -274,11 +274,12 @@ class KeyMap:
         result = self._reverse.get((key, mods))
         if result is not None:
             return result
-        # ?、*、+、~ のように入力にShiftが必要な非英字キーの場合、
-        # ShiftModifierを無視して再検索する（"Question"→? など）
+        # ?、*、+、~ のように入力にShiftが必要な非英字キーは、
+        # Shiftを除去して再検索する（Ctrl+? → Ctrl+Question など）
         is_letter = Qt.Key.Key_A <= key <= Qt.Key.Key_Z
-        if mods == Qt.KeyboardModifier.ShiftModifier and not is_letter:
-            return self._reverse.get((key, Qt.KeyboardModifier.NoModifier))
+        if not is_letter and (mods & Qt.KeyboardModifier.ShiftModifier):
+            mods_without_shift = mods & ~Qt.KeyboardModifier.ShiftModifier
+            return self._reverse.get((key, mods_without_shift))
         return None
 
     def all_bindings(self) -> list[tuple[str, str, str]]:
