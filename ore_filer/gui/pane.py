@@ -30,8 +30,20 @@ from PySide6.QtWidgets import (
 
 from ore_filer.services.file_operations import (
     ArchiveEntry,
+    disk_usage,
     list_archive_entries,
 )
+
+
+def _fmt_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 ** 2:
+        return f"{size / 1024:.1f} KB"
+    elif size < 1024 ** 3:
+        return f"{size / 1024 ** 2:.1f} MB"
+    else:
+        return f"{size / 1024 ** 3:.2f} GB"
 
 
 class FileItemDelegate(QStyledItemDelegate):
@@ -403,6 +415,7 @@ class PaneWidget(QWidget):
         self.search_filter_model = SearchResultFilterProxyModel(self)
         self.search_filter_model.setSourceModel(self.search_model)
         self._search_results: list[Path] | None = None
+        self._grep_hits: dict[Path, list[int]] = {}
         self.archive_model = QStandardItemModel(self)
         self.archive_filter_model = SearchResultFilterProxyModel(self)
         self.archive_filter_model.setSourceModel(self.archive_model)
@@ -518,7 +531,13 @@ class PaneWidget(QWidget):
         if self._search_results is not None:
             self.path_label.setText(f"{prefix} 検索結果: {self.current_path}")
         else:
-            self.path_label.setText(f"{prefix} {self.current_path}")
+            usage = disk_usage(self.current_path)
+            if usage is not None:
+                free, total = usage
+                disk_info = f"  （空き {_fmt_size(free)} / {_fmt_size(total)}）"
+            else:
+                disk_info = ""
+            self.path_label.setText(f"{prefix} {self.current_path}{disk_info}")
 
     def set_sort(self, mode: str, order: Qt.SortOrder) -> None:
         self._sort_mode = mode
@@ -690,7 +709,12 @@ class PaneWidget(QWidget):
         elif self.filter_model.has_filter():
             self.set_filter("")
 
-    def show_search_results(self, paths: list[str | Path]) -> None:
+    def show_search_results(
+        self,
+        paths: list[str | Path],
+        line_hits: dict[Path, list[int]] | None = None,
+    ) -> None:
+        self._grep_hits = line_hits or {}
         self._search_results = [Path(path).expanduser().resolve() for path in paths]
         self.search_model.clear()
         self.search_model.setHorizontalHeaderLabels(["名前", "サイズ", "更新日時"])
@@ -709,15 +733,7 @@ class PaneWidget(QWidget):
             if fi.isDir():
                 size_text = ""
             else:
-                sz = fi.size()
-                if sz < 1024:
-                    size_text = f"{sz} B"
-                elif sz < 1024 ** 2:
-                    size_text = f"{sz / 1024:.1f} KB"
-                elif sz < 1024 ** 3:
-                    size_text = f"{sz / 1024 ** 2:.1f} MB"
-                else:
-                    size_text = f"{sz / 1024 ** 3:.2f} GB"
+                size_text = _fmt_size(fi.size())
             size_item = QStandardItem(size_text)
             size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             # 列2: 更新日時
@@ -746,6 +762,7 @@ class PaneWidget(QWidget):
 
         self._select_anchor = None
         self._search_results = None
+        self._grep_hits = {}
         self.file_view.setRootIndex(QModelIndex())
         self.file_view.setModel(self.filter_model)
         self._reconnect_selection_signal()
@@ -761,6 +778,17 @@ class PaneWidget(QWidget):
 
     def has_search_results(self) -> bool:
         return self._search_results is not None
+
+    def grep_lines(self, path: Path) -> list[int]:
+        """GREP結果の該当行番号リストを返す（なければ空リスト）。"""
+        return self._grep_hits.get(Path(path).resolve(), [])
+
+    def set_show_hidden(self, show: bool) -> None:
+        """隠しファイルの表示/非表示を切り替える。"""
+        flags = QDir.AllEntries | QDir.NoDotAndDotDot
+        if show:
+            flags |= QDir.Hidden
+        self.model.setFilter(flags)
 
     def has_filter(self) -> bool:
         if self.is_archive_view():

@@ -1,3 +1,4 @@
+import difflib
 import os
 import re
 import shlex
@@ -824,3 +825,40 @@ def read_text_preview(path: Path, limit: int = _TEXT_LIMIT) -> tuple[str, str]:
     if truncated:
         text += "\n\n[--- ファイルが大きいため、ここで表示を打ち切りました ---]"
     return text, "utf-8 (fallback)"
+
+
+def create_file(parent: Path, name: str) -> Path:
+    """空ファイルを作成する。既存の場合は FileExistsError。"""
+    path = parent / name
+    path.touch(exist_ok=False)
+    return path
+
+
+def reveal_in_explorer(path: Path) -> None:
+    """エクスプローラーでパスを表示する（ファイルは選択状態で）。"""
+    if path.is_file():
+        subprocess.Popen(["explorer", f"/select,{path}"])
+    else:
+        subprocess.Popen(["explorer", str(path)])
+
+
+def disk_usage(path: Path) -> tuple[int, int] | None:
+    """(空き容量バイト, 合計容量バイト) を返す。失敗時は None。"""
+    try:
+        usage = shutil.disk_usage(path)
+        return usage.free, usage.total
+    except OSError:
+        return None
+
+
+def text_diff(left: Path, right: Path) -> str:
+    """2ファイルの unified diff を返す。読込失敗時は ValueError を送出。"""
+    left_text, _ = read_text_preview(left)
+    right_text, _ = read_text_preview(right)
+    lines = list(difflib.unified_diff(
+        left_text.splitlines(keepends=True),
+        right_text.splitlines(keepends=True),
+        fromfile=left.name,
+        tofile=right.name,
+    ))
+    return "".join(lines)

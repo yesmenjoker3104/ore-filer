@@ -114,6 +114,10 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "expand_tree":      "ツリーを展開/折りたたむ",
     "refresh":          "F5 で再読み込み",
     "center_splitter":  "スプリッターを中央に",
+    "new_file":         "新規空ファイルを作成",
+    "explorer":         "エクスプローラーで開く",
+    "toggle_hidden":    "隠しファイル表示を切り替える",
+    "diff":             "左右ペインのファイルを差分表示",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -171,6 +175,10 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "expand_tree":      "T",
     "refresh":          "F5",
     "center_splitter":  "Equal",
+    "new_file":         "N",
+    "explorer":         "Shift+W",
+    "toggle_hidden":    "Shift+H",
+    "diff":             "Shift+X",
 }
 
 

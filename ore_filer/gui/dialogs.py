@@ -678,9 +678,21 @@ def confirm_list(
 
 
 class TextViewerDialog(QDialog):
-    def __init__(self, path: Path, text: str, encoding: str, parent=None):
+    def __init__(
+        self,
+        path: Path,
+        text: str,
+        encoding: str,
+        highlight_lines: list[int] | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
-        self.setWindowTitle(f"{path.name}  [{encoding}]")
+        self._hits = sorted(set(highlight_lines)) if highlight_lines else []
+        self._hit_index = 0
+        self._path = path
+        self._encoding = encoding
+        self._grep_selections: list = []   # GREPハイライト
+        self._search_selections: list = [] # テキスト検索ハイライト
         self.resize(900, 650)
 
         self._editor = QPlainTextEdit(self)
@@ -689,24 +701,169 @@ class TextViewerDialog(QDialog):
         font.setStyleHint(QFont.StyleHint.Monospace)
         self._editor.setFont(font)
         self._editor.setPlainText(text)
-        self._editor.moveCursor(self._editor.textCursor().MoveOperation.Start)
+
+        # ── 検索バー（下部、非表示で開始）──
+        self._search_bar = QWidget(self)
+        bar_layout = QHBoxLayout(self._search_bar)
+        bar_layout.setContentsMargins(4, 2, 4, 2)
+        bar_layout.setSpacing(4)
+        self._search_edit = QLineEdit(self._search_bar)
+        self._search_edit.setPlaceholderText("検索 (Enter: 次へ  Shift+Enter: 前へ  Esc: 閉じる)")
+        self._search_label = QLabel("", self._search_bar)
+        self._search_label.setFixedWidth(80)
+        bar_layout.addWidget(self._search_edit)
+        bar_layout.addWidget(self._search_label)
+        self._search_bar.setVisible(False)
+        self._search_edit.textChanged.connect(self._on_search_text_changed)
+        self._search_edit.installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
         layout.addWidget(self._editor)
+        layout.addWidget(self._search_bar)
+
+        if self._hits:
+            self._apply_grep_highlights()
+            self._jump_to_hit(0)
+        else:
+            self._editor.moveCursor(self._editor.textCursor().MoveOperation.Start)
+        self._update_title()
+
+    def _update_title(self) -> None:
+        base = f"{self._path.name}  [{self._encoding}]"
+        if self._hits:
+            self.setWindowTitle(f"{base}  [{self._hit_index + 1}/{len(self._hits)}]")
+        else:
+            self.setWindowTitle(base)
+
+    def _apply_grep_highlights(self) -> None:
+        from PySide6.QtGui import QTextCharFormat, QTextCursor
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("#ffff99"))
+        selections = []
+        doc = self._editor.document()
+        for lineno in self._hits:
+            block = doc.findBlockByLineNumber(lineno - 1)
+            if not block.isValid():
+                continue
+            sel = QPlainTextEdit.ExtraSelection()
+            cur = QTextCursor(block)
+            cur.select(QTextCursor.SelectionType.LineUnderCursor)
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+        self._grep_selections = selections
+        self._editor.setExtraSelections(self._grep_selections + self._search_selections)
+
+    def _jump_to_hit(self, index: int) -> None:
+        from PySide6.QtGui import QTextCursor
+        if not self._hits:
+            return
+        self._hit_index = max(0, min(index, len(self._hits) - 1))
+        lineno = self._hits[self._hit_index]
+        doc = self._editor.document()
+        block = doc.findBlockByLineNumber(lineno - 1)
+        if block.isValid():
+            cur = self._editor.textCursor()
+            cur.setPosition(block.position())
+            self._editor.setTextCursor(cur)
+            self._editor.centerCursor()
+        self._update_title()
+
+    # ── テキスト検索 ──────────────────────────────────────
+
+    def _open_search_bar(self) -> None:
+        self._search_bar.setVisible(True)
+        self._search_edit.setFocus()
+        self._search_edit.selectAll()
+
+    def _close_search_bar(self) -> None:
+        self._search_bar.setVisible(False)
+        self._search_selections = []
+        self._editor.setExtraSelections(self._grep_selections)
+        self._search_label.setText("")
+        self._editor.setFocus()
+
+    def _on_search_text_changed(self, text: str) -> None:
+        from PySide6.QtGui import QTextCharFormat, QTextCursor, QTextDocument
+        self._search_selections = []
+        if not text:
+            self._editor.setExtraSelections(self._grep_selections)
+            self._search_label.setText("")
+            return
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("#b3d9ff"))
+        doc = self._editor.document()
+        cursor = QTextCursor(doc)
+        count = 0
+        while True:
+            cursor = doc.find(text, cursor)
+            if cursor.isNull():
+                break
+            sel = QPlainTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            self._search_selections.append(sel)
+            count += 1
+        self._editor.setExtraSelections(self._grep_selections + self._search_selections)
+        self._search_label.setText(f"{count} 件" if count else "見つからない")
+        # 最初のマッチへスクロール
+        if self._search_selections:
+            self._editor.setTextCursor(self._search_selections[0].cursor)
+            self._editor.centerCursor()
+
+    def _search_next(self, backward: bool = False) -> None:
+        from PySide6.QtGui import QTextDocument
+        text = self._search_edit.text()
+        if not text:
+            return
+        flags = QTextDocument.FindFlag(0)
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        if not self._editor.find(text, flags):
+            # 折り返し
+            cur = self._editor.textCursor()
+            cur.movePosition(
+                cur.MoveOperation.End if backward else cur.MoveOperation.Start
+            )
+            self._editor.setTextCursor(cur)
+            self._editor.find(text, flags)
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
-        if key in (
-            Qt.Key.Key_Escape,
-            Qt.Key.Key_Q,
-            Qt.Key.Key_V,
-            Qt.Key.Key_Return,
-            Qt.Key.Key_Enter,
-        ):
+        mods = event.modifiers()
+        no_mod = mods == Qt.KeyboardModifier.NoModifier
+        if self._search_bar.isVisible():
+            # 検索バーが開いているときは Esc だけ横取り
+            if key == Qt.Key.Key_Escape:
+                self._close_search_bar()
+            else:
+                super().keyPressEvent(event)
+            return
+        if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q, Qt.Key.Key_V,
+                   Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept()
+        elif (key == Qt.Key.Key_F and mods == Qt.KeyboardModifier.ControlModifier) or \
+             (key == Qt.Key.Key_Slash and no_mod):
+            self._open_search_bar()
+        elif key == Qt.Key.Key_N and self._hits and no_mod:
+            self._jump_to_hit(self._hit_index + 1)
+        elif key == Qt.Key.Key_N and self._hits and mods == Qt.KeyboardModifier.ShiftModifier:
+            self._jump_to_hit(self._hit_index - 1)
         else:
             super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:
+        """検索バーの Enter / Shift+Enter を横取りして前後検索。"""
+        from PySide6.QtCore import QEvent
+        if watched is self._search_edit and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._search_next(backward=mods == Qt.KeyboardModifier.ShiftModifier)
+                return True
+        return super().eventFilter(watched, event)
 
 
 # ── 一括リネーム ──────────────────────────────────────────
@@ -1185,6 +1342,13 @@ class GrepDialog(QDialog):
                 seen.append(m.path)
         return seen
 
+    def line_hits(self) -> dict[Path, list[int]]:
+        """ファイルパス → 該当行番号リスト の辞書を返す。"""
+        result: dict[Path, list[int]] = {}
+        for m in self._results:
+            result.setdefault(m.path, []).append(m.lineno)
+        return result
+
     def reject(self) -> None:
         if self._thread is not None and self._thread.isRunning():
             self._closing = True
@@ -1202,6 +1366,69 @@ class GrepDialog(QDialog):
             event.ignore()
             return
         super().closeEvent(event)
+
+
+# ── 差分ダイアログ ───────────────────────────────────────────
+
+
+class DiffDialog(QDialog):
+    def __init__(self, left_name: str, right_name: str, diff_text: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"差分: {left_name}  ↔  {right_name}")
+        self.resize(960, 700)
+
+        self._editor = QPlainTextEdit(self)
+        self._editor.setReadOnly(True)
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self._editor.setFont(font)
+
+        if diff_text:
+            self._editor.setPlainText(diff_text)
+            self._apply_diff_colors()
+        else:
+            self._editor.setPlainText("（差分なし: 同一内容です）")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addWidget(self._editor)
+
+    def _apply_diff_colors(self) -> None:
+        from PySide6.QtGui import QTextCharFormat, QTextCursor
+        doc = self._editor.document()
+        add_fmt = QTextCharFormat()
+        add_fmt.setBackground(QColor("#d4edda"))
+        del_fmt = QTextCharFormat()
+        del_fmt.setBackground(QColor("#f8d7da"))
+        hunk_fmt = QTextCharFormat()
+        hunk_fmt.setBackground(QColor("#cce5ff"))
+        selections = []
+        block = doc.begin()
+        while block.isValid():
+            text = block.text()
+            if text.startswith("@@"):
+                fmt = hunk_fmt
+            elif text.startswith("+") and not text.startswith("+++"):
+                fmt = add_fmt
+            elif text.startswith("-") and not text.startswith("---"):
+                fmt = del_fmt
+            else:
+                block = block.next()
+                continue
+            sel = QPlainTextEdit.ExtraSelection()
+            cur = QTextCursor(block)
+            cur.select(QTextCursor.SelectionType.LineUnderCursor)
+            sel.cursor = cur
+            sel.format = fmt
+            selections.append(sel)
+            block = block.next()
+        self._editor.setExtraSelections(selections)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
 
 
 # ── キー一覧ダイアログ ────────────────────────────────────────

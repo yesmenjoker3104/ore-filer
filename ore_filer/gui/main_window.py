@@ -19,6 +19,7 @@ from ore_filer.gui.dialogs import (
 	BulkRenameDialog,
 	CompareSelectDialog,
 	confirm_list,
+	DiffDialog,
 	DirSizeThread,
 	FileInfoDialog,
 	FilterDialog,
@@ -43,7 +44,11 @@ from ore_filer.services.file_operations import (
 	copy_paths_with_structure,
 	copy_archive_entries,
 	create_directory,
+	create_file,
 	delete_paths,
+	disk_usage,
+	reveal_in_explorer,
+	text_diff,
 	trash_paths,
 	is_archive_path,
 	open_in_editor,
@@ -237,6 +242,12 @@ class MainWindow(QMainWindow):
 			pane.files_dropped.connect(self._on_files_dropped)
 
 		self._update_active_pane()
+		# 隠しファイル表示設定を復元（デフォルト: 表示）
+		_cfg = load_config()
+		_show_hidden = _cfg.get("show_hidden", True)
+		for pane in self.panes:
+			pane.set_show_hidden(_show_hidden)
+
 		self._last_update_check: str = ""
 		self._update_check_thread: UpdateCheckThread | None = None
 		self._update_download_thread: UpdateDownloadThread | None = None
@@ -1166,6 +1177,18 @@ class MainWindow(QMainWindow):
 					else:
 						fv.expand(index)
 				return True
+			elif action == "new_file":
+				self.create_new_file()
+				return True
+			elif action == "explorer":
+				self.reveal_in_explorer_here()
+				return True
+			elif action == "toggle_hidden":
+				self.toggle_hidden()
+				return True
+			elif action == "diff":
+				self.diff_files()
+				return True
 			elif action == "keymap_help":
 				self.show_keymap_help()
 				return True
@@ -1377,7 +1400,8 @@ class MainWindow(QMainWindow):
 		except OSError as e:
 			QMessageBox.warning(self, "テキストビューア", f"読み込みに失敗しました:\n{e}")
 			return
-		TextViewerDialog(path, text, encoding, self).exec()
+		lines = self.active_pane.grep_lines(path)
+		TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
 
 	# ── 外部エディタで開く ────────────────────────────────────
 
@@ -1574,7 +1598,70 @@ class MainWindow(QMainWindow):
 			return
 		paths = dialog.matched_paths()
 		if paths:
-			self.active_pane.show_search_results(paths)
+			self.active_pane.show_search_results(paths, dialog.line_hits())
+
+	# ── 新規ファイル作成 ─────────────────────────────────────
+
+	def create_new_file(self) -> None:
+		name, ok = QInputDialog.getText(self, "新規ファイルの作成", "ファイル名:")
+		if not ok or not name:
+			return
+		new_path = self.active_pane.current_path / name
+		if new_path.exists():
+			QMessageBox.warning(self, "警告", "同名のファイルまたはフォルダが存在します。")
+			return
+		try:
+			create_file(self.active_pane.current_path, name)
+		except Exception as e:
+			QMessageBox.critical(self, "エラー", f"ファイルの作成に失敗しました:\n{e}")
+			return
+		self.active_pane.reload()
+		self.active_pane._pending_focus = name
+
+	# ── エクスプローラーで開く ────────────────────────────────
+
+	def reveal_in_explorer_here(self) -> None:
+		path = self.focused_path() or self.active_pane.current_path
+		try:
+			reveal_in_explorer(path)
+		except OSError as e:
+			QMessageBox.warning(self, "エクスプローラー", f"起動できませんでした:\n{e}")
+
+	# ── 隠しファイル表示切替 ──────────────────────────────────
+
+	def toggle_hidden(self) -> None:
+		cfg = load_config()
+		show = not cfg.get("show_hidden", True)
+		cfg["show_hidden"] = show
+		save_config(cfg)
+		for pane in self.panes:
+			pane.set_show_hidden(show)
+		label = "表示" if show else "非表示"
+		self.statusBar().showMessage(f"隠しファイル: {label}", 3000)
+
+	# ── 差分表示 ─────────────────────────────────────────────
+
+	def diff_files(self) -> None:
+		def _pane_focused(pane: "PaneWidget") -> Path | None:
+			idx = pane.file_view.currentIndex()
+			return pane.path_from_index(idx)
+		left_path = _pane_focused(self.left_pane)
+		right_path = _pane_focused(self.right_pane)
+		if left_path is None or right_path is None:
+			QMessageBox.information(self, "差分表示", "左右ペインでファイルを選択してください。")
+			return
+		if left_path.is_dir() or right_path.is_dir():
+			QMessageBox.information(self, "差分表示", "ファイルを選択してください（フォルダは不可）。")
+			return
+		try:
+			diff = text_diff(left_path, right_path)
+		except ValueError as e:
+			QMessageBox.warning(self, "差分表示", str(e))
+			return
+		except OSError as e:
+			QMessageBox.warning(self, "差分表示", f"読み込みに失敗しました:\n{e}")
+			return
+		DiffDialog(left_path.name, right_path.name, diff, self).exec()
 
 	# ── キーマップウォッチャー ────────────────────────────────
 
