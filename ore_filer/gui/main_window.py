@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ore_filer.gui.dialogs import (
+	MARKDOWN_EXTENSIONS,
 	ArchiveDialog,
 	BookmarkDialog,
 	BulkRenameDialog,
@@ -35,6 +36,7 @@ from ore_filer.gui.dialogs import (
 	SearchDialog,
 	SortDialog,
 	TextViewerDialog,
+	MarkdownViewerDialog,
 )
 from ore_filer.services import git_service
 from ore_filer.gui.keymap import KeyMap, user_keymap_file
@@ -218,7 +220,6 @@ class MainWindow(QMainWindow):
 		self._archive_thread: QThread | None = None
 		self._file_op_thread: FileOperationThread | None = None
 		self._dir_size_thread: DirSizeThread | None = None
-		self._pending_g = False
 
 		# キーマップ
 		self._keymap = KeyMap()
@@ -455,6 +456,9 @@ class MainWindow(QMainWindow):
 		elif path.suffix.casefold() in IMAGE_EXTENSIONS:
 			self._open_image_viewer(path)
 			return True
+		elif path.suffix.casefold() in MARKDOWN_EXTENSIONS:
+			self._open_markdown_viewer(path)
+			return True
 		import tempfile, os
 		with open(os.path.join(tempfile.gettempdir(), "ore_filer_debug.txt"), "a") as _f:
 			_f.write(f"enter: path={path} suffix={path.suffix.casefold()!r} in_ext={path.suffix.casefold() in IMAGE_EXTENSIONS}\n")
@@ -477,6 +481,18 @@ class MainWindow(QMainWindow):
 			dialog.exec()
 		except Exception as error:
 			QMessageBox.critical(self, "画像ビューア エラー", str(error))
+
+	def _open_markdown_viewer(self, path: Path) -> None:
+		try:
+			text, encoding = read_text_preview(path)
+		except ValueError as error:
+			QMessageBox.warning(self, "Markdown Viewer", str(error))
+			return
+		except OSError as error:
+			QMessageBox.critical(self, "Markdown Viewer", f"読み込みに失敗しました：\n{error}")
+			return
+		dialog = MarkdownViewerDialog(path, text, encoding, self)
+		dialog.exec()
 
 	def create_archive(self) -> None:
 		if self._archive_thread is not None and self._archive_thread.isRunning():
@@ -1029,17 +1045,12 @@ class MainWindow(QMainWindow):
 				if km.matches(event, "enter"):
 					return self.enter_current_item()
 
-			# ── G の2段押し（キーマップ対応だが状態が必要）──
+			# ── 先頭・末尾へ ──
 			if km.matches(event, "go_last"):
-				self._pending_g = False
 				self.active_pane.go_to_last_item()
 				return True
 			if km.matches(event, "go_first"):
-				if self._pending_g:
-					self._pending_g = False
-					self.active_pane.go_to_first_item()
-				else:
-					self._pending_g = True
+				self.active_pane.go_to_first_item()
 				return True
 
 			# ── キーマップ経由ディスパッチ ──
@@ -1080,6 +1091,12 @@ class MainWindow(QMainWindow):
 				return True
 			elif action == "select_up":
 				self.active_pane.select_current_and_move_up()
+				return True
+			elif action == "page_down":
+				self.active_pane.move_page_down()
+				return True
+			elif action == "page_up":
+				self.active_pane.move_page_up()
 				return True
 			elif action == "range_select":
 				self.active_pane.range_select()
@@ -1233,8 +1250,6 @@ class MainWindow(QMainWindow):
 					self.active_pane.clear_filter()
 					return True
 
-			if self._pending_g:
-				self._pending_g = False
 		return super().eventFilter(watched, event)
 
 	_RESIZE_STEP = 50
@@ -1724,11 +1739,15 @@ class MainWindow(QMainWindow):
 		return git_service.find_repo_root(self.active_pane.current_path)
 
 	def show_git_menu(self) -> None:
-		"""Ctrl+Shift+G: Git メニューを表示する。"""
+		"""G: Git メニューを表示する。"""
 		from PySide6.QtWidgets import QMenu
 
 		if not git_service.is_available():
-			QMessageBox.information(self, "Git", "git がインストールされていません。")
+			QMessageBox.information(
+				self,
+				"Git",
+				"Git機能を利用できません。Dulwichがインストールされていません。",
+			)
 			return
 		repo = git_service.find_repo_root(self.active_pane.current_path)
 		if repo is None:
@@ -1741,6 +1760,7 @@ class MainWindow(QMainWindow):
 		menu.addSeparator()
 		menu.addAction("コミット... (&C)", self.git_commit)
 		menu.addSeparator()
+		menu.addAction("fetch (&F)", self.git_fetch)
 		menu.addAction("pull (&L)", self.git_pull)
 		menu.addAction("push (&P)", self.git_push)
 		menu.addSeparator()
@@ -1830,6 +1850,25 @@ class MainWindow(QMainWindow):
 		thread = GitCommandThread(lambda r=repo, m=msg: git_service.commit(r, m), self)
 		thread.succeeded.connect(lambda out: self._on_git_command_done("コミット", out))
 		thread.failed.connect(lambda err: self._on_git_command_failed("コミット", err))
+		thread.finished.connect(thread.deleteLater)
+		thread.start()
+
+	def git_fetch(self) -> None:
+		"""リモートの参照を取得する。作業ツリーは変更しない。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		confirm = QMessageBox.question(
+			self, "git fetch", "リモートから最新の履歴を取得しますか？",
+			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.No,
+		)
+		if confirm != QMessageBox.StandardButton.Yes:
+			return
+		self.statusBar().showMessage("git fetch 実行中...")
+		thread = GitCommandThread(lambda r=repo: git_service.fetch(r), self)
+		thread.succeeded.connect(lambda out: self._on_git_sync_done("fetch", out))
+		thread.failed.connect(lambda err: self._on_git_command_failed("fetch", err))
 		thread.finished.connect(thread.deleteLater)
 		thread.start()
 

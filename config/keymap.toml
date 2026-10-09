@@ -16,8 +16,10 @@ enter           = "Return"          # フォルダを開く / アーカイブを
 execute         = "Ctrl+Return"     # 関連付け実行
 parent          = "Backspace"       # 親フォルダへ
 switch_pane     = "Tab"             # ペインを切り替える
-go_first        = "G"               # 先頭へ（gg）
-go_last         = "Shift+G"         # 末尾へ
+go_first        = "Ctrl+Up"         # 先頭へ（gg相当）
+go_last         = "Ctrl+Down"       # 末尾へ（G相当）
+page_up         = "Shift+Up"        # 1スクロール分上へ
+page_down       = "Shift+Down"      # 1スクロール分下へ
 home_dir        = "AsciiTilde"      # ホームフォルダへ
 jump_path       = "Shift+J"         # パスを入力して移動
 sync_panes      = "O"               # 相手ペインのパスに移動
@@ -86,7 +88,7 @@ diff            = "Shift+X"         # 左右ペインのファイルを差分表
 toggle_hidden   = "Shift+H"         # 隠しファイル表示を切り替える
 
 # ── Git ────────────────────────────────────────────────────
-git_menu        = "Ctrl+Shift+G"    # Git メニュー（ステージ/コミット/pull/push/差分/ログ/ブランチ）
+git_menu        = "G"               # Git メニュー（ステージ/コミット/fetch/pull/push/差分/ログ/ブランチ）
 
 # ── システム ───────────────────────────────────────────────
 keymap_help     = "Question"        # キー一覧を表示

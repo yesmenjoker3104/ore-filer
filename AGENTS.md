@@ -8,6 +8,7 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 
 - Python 3.12以上
 - PySide6
+- Dulwich（Git操作。`git.exe`は不要）
 - setuptools（`pyproject.toml`）
 - Windows + PowerShell
 
@@ -26,6 +27,7 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 - `ore_filer/app.py`: アプリケーション起動
 - `ore_filer/gui/`: PySide6の画面、ペイン、キー操作、ダイアログ
 - `ore_filer/services/`: GUI・CLI・プラグインで共有するファイル操作
+- `ore_filer/services/git_service.py`: DulwichによるGit状態確認、ローカル操作、Fetch/Push
 - `ore_filer/api/`: Pythonプラグイン向け公開API
 - `ore_filer/cli/`: CLI入口と引数処理
 - `config/keymap.toml`: 外部キー設定
