@@ -1,3 +1,4 @@
+import difflib
 import re
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 	QPushButton,
 	QRadioButton,
 	QSpinBox,
+	QSplitter,
 	QTableWidget,
 	QTableWidgetItem,
     QTextBrowser,
@@ -570,6 +572,34 @@ IMAGE_EXTENSIONS = {
 MARKDOWN_EXTENSIONS = {
     ".md", ".markdown", ".mdown", ".mkd",
 }
+HTML_EXTENSIONS = {
+    ".html", ".htm",
+}
+PDF_EXTENSIONS = {
+    ".pdf",
+}
+CSV_EXTENSIONS = {
+    ".csv", ".tsv",
+}
+JSON_EXTENSIONS = {
+    ".json", ".jsonl",
+}
+XML_EXTENSIONS = {
+    ".xml", ".xhtml", ".xsd", ".xsl", ".xslt", ".wsdl",
+}
+SVG_EXTENSIONS = {
+    ".svg",
+}
+LOG_EXTENSIONS = {
+    ".log",
+}
+PLAINTEXT_EXTENSIONS = {
+    ".yaml", ".yml", ".toml", ".env", ".properties", ".ini", ".cfg", ".conf",
+}
+HEX_EXTENSIONS = {
+    ".bin", ".dat", ".exe", ".dll", ".so", ".dylib", ".class", ".pyc",
+    ".obj", ".o", ".a", ".lib", ".pdb", ".iso", ".img", ".rom",
+}
 
 class ImageViewerDialog(QDialog):
     def __init__(self, paths: list[Path], index: int, parent=None):
@@ -707,6 +737,396 @@ class MarkdownViewerDialog(QDialog):
             self.accept()
             return
         super().keyPressEvent(event)
+
+
+# ── HTML ビューア ────────────────────────────────────────
+
+
+class HtmlViewerDialog(QDialog):
+    """HTML ファイルの簡易ビューア（QTextBrowser ベース）。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"HTML Viewer - {path.name}")
+        self.resize(960, 700)
+
+        viewer = QTextBrowser(self)
+        viewer.setOpenExternalLinks(True)
+        viewer.setSearchPaths([str(path.parent)])
+        try:
+            html = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            html = f"<pre>読み込みに失敗しました: {e}</pre>"
+        viewer.setHtml(html)
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(viewer, 1)
+        layout.addWidget(hint)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── PDF ビューア ─────────────────────────────────────────
+
+
+class PdfViewerDialog(QDialog):
+    """PDF ファイルのビューア（Qt PDF ベース）。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"PDF Viewer - {path.name}")
+        self.resize(960, 800)
+
+        from PySide6.QtPdf import QPdfDocument
+        from PySide6.QtPdfWidgets import QPdfView
+
+        self._doc = QPdfDocument(self)
+        self._doc.load(str(path))
+
+        view = QPdfView(self)
+        view.setDocument(self._doc)
+        view.setPageMode(QPdfView.PageMode.MultiPage)
+        view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(view, 1)
+        layout.addWidget(hint)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── CSV ビューア ─────────────────────────────────────────
+
+
+class CsvViewerDialog(QDialog):
+    """CSV / TSV ファイルのテーブルビューア。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"CSV Viewer - {path.name}")
+        self.resize(1000, 650)
+
+        import csv as _csv
+
+        delimiter = "\t" if path.suffix.casefold() == ".tsv" else ","
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            QMessageBox.critical(parent, "CSV Viewer", f"読み込みに失敗しました：\n{e}")
+            return
+
+        rows = list(_csv.reader(text.splitlines(), delimiter=delimiter))
+        if not rows:
+            rows = [[]]
+
+        table = QTableWidget(len(rows) - 1, len(rows[0]), self)
+        table.setHorizontalHeaderLabels(rows[0])
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.verticalHeader().setDefaultSectionSize(22)
+
+        for r, row in enumerate(rows[1:]):
+            for c, cell in enumerate(row):
+                if c < table.columnCount():
+                    table.setItem(r, c, QTableWidgetItem(cell))
+
+        row_label = QLabel(f"{len(rows) - 1} 行  |  {len(rows[0])} 列", self)
+        hint = QLabel("Esc / Q: 閉じる", self)
+        bottom = QHBoxLayout()
+        bottom.addWidget(row_label)
+        bottom.addStretch()
+        bottom.addWidget(hint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(table, 1)
+        layout.addLayout(bottom)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── JSON ビューア ────────────────────────────────────────
+
+
+class JsonViewerDialog(QDialog):
+    """JSON / JSONL ファイルのフォーマット済みビューア。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"JSON Viewer - {path.name}")
+        self.resize(960, 700)
+
+        import json as _json
+
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            text = f"読み込みに失敗しました: {e}"
+
+        if path.suffix.casefold() == ".jsonl":
+            lines = [l for l in text.splitlines() if l.strip()]
+            parts = []
+            for i, line in enumerate(lines):
+                try:
+                    parts.append(_json.dumps(_json.loads(line), ensure_ascii=False, indent=2))
+                except _json.JSONDecodeError:
+                    parts.append(line)
+            formatted = "\n".join(parts)
+        else:
+            try:
+                formatted = _json.dumps(_json.loads(text), ensure_ascii=False, indent=2)
+            except _json.JSONDecodeError as e:
+                formatted = f"// JSON パースエラー: {e}\n\n{text}"
+
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        editor = QPlainTextEdit(self)
+        editor.setReadOnly(True)
+        editor.setFont(font)
+        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        editor.setPlainText(formatted)
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(editor, 1)
+        layout.addWidget(hint)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── XML ビューア ─────────────────────────────────────────
+
+
+class XmlViewerDialog(QDialog):
+    """XML ファイルのフォーマット済みビューア。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"XML Viewer - {path.name}")
+        self.resize(960, 700)
+
+        import xml.dom.minidom as _minidom
+
+        try:
+            raw = path.read_text(encoding="utf-8-sig", errors="replace")
+            formatted = _minidom.parseString(raw.encode("utf-8")).toprettyxml(indent="  ")
+            # toprettyxml が先頭に余分な宣言行を追加する場合があるのでそのまま利用
+        except Exception as e:
+            formatted = f"<!-- XML パースエラー: {e} -->\n\n{raw if 'raw' in dir() else ''}"
+
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        editor = QPlainTextEdit(self)
+        editor.setReadOnly(True)
+        editor.setFont(font)
+        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        editor.setPlainText(formatted)
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(editor, 1)
+        layout.addWidget(hint)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── SVG ビューア ─────────────────────────────────────────
+
+
+class SvgViewerDialog(QDialog):
+    """SVG ファイルのベクタービューア。"""
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"SVG Viewer - {path.name}")
+        self.resize(800, 700)
+
+        from PySide6.QtSvgWidgets import QSvgWidget
+
+        svg_widget = QSvgWidget(str(path), self)
+        svg_widget.setStyleSheet("background: white;")
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(svg_widget, 1)
+        layout.addWidget(hint)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── Log ビューア ─────────────────────────────────────────
+
+
+class LogViewerDialog(QDialog):
+    """ログファイルのビューア（重大度で行を色分け）。"""
+
+    _LEVELS = [
+        (re.compile(r"\b(FATAL|CRITICAL|SEVERE)\b", re.IGNORECASE), "#5a1a1a", "#ff9090"),
+        (re.compile(r"\bERROR\b",                   re.IGNORECASE), "#3a1e1e", "#e8b5b5"),
+        (re.compile(r"\bWARN(ING)?\b",              re.IGNORECASE), "#3a2e00", "#f0d040"),
+        (re.compile(r"\bINFO\b",                    re.IGNORECASE), "#1e2a3a", "#9ac0e8"),
+        (re.compile(r"\bDEBUG\b",                   re.IGNORECASE), "#2a2a2a", "#888888"),
+    ]
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Log Viewer - {path.name}")
+        self.resize(1100, 700)
+
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            text = f"読み込みに失敗しました: {e}"
+
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self._editor = QPlainTextEdit(self)
+        self._editor.setReadOnly(True)
+        self._editor.setFont(font)
+        self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._editor.setPlainText(text)
+        self._apply_log_colors()
+
+        hint = QLabel("Esc / Q: 閉じる", self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(self._editor, 1)
+        layout.addWidget(hint)
+
+    def _apply_log_colors(self) -> None:
+        from PySide6.QtGui import QTextCharFormat, QTextCursor
+
+        fmts = []
+        for _, bg, fg in self._LEVELS:
+            f = QTextCharFormat()
+            f.setBackground(QColor(bg))
+            f.setForeground(QColor(fg))
+            fmts.append(f)
+
+        selections = []
+        block = self._editor.document().begin()
+        while block.isValid():
+            text = block.text()
+            for i, (pat, _, _) in enumerate(self._LEVELS):
+                if pat.search(text):
+                    sel = QTextEdit.ExtraSelection()
+                    cur = QTextCursor(block)
+                    cur.select(QTextCursor.SelectionType.LineUnderCursor)
+                    sel.cursor = cur
+                    sel.format = fmts[i]
+                    selections.append(sel)
+                    break
+            block = block.next()
+        self._editor.setExtraSelections(selections)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+# ── Hex ビューア ─────────────────────────────────────────
+
+
+class HexViewerDialog(QDialog):
+    """バイナリファイルの16進数ダンプビューア。"""
+
+    _CHUNK = 65536  # 最大表示バイト数
+
+    def __init__(self, path: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Hex Viewer - {path.name}")
+        self.resize(900, 700)
+
+        try:
+            data = path.read_bytes()
+            truncated = len(data) > self._CHUNK
+            data = data[:self._CHUNK]
+        except OSError as e:
+            data = b""
+            truncated = False
+            notice = f"読み込みに失敗しました: {e}"
+        else:
+            notice = f"先頭 {self._CHUNK:,} バイトを表示  （合計: {path.stat().st_size:,} バイト）" if truncated else f"{len(data):,} バイト"
+
+        lines = []
+        for offset in range(0, len(data), 16):
+            chunk = data[offset:offset + 16]
+            hex_part = " ".join(f"{b:02X}" for b in chunk)
+            hex_part = f"{hex_part:<47}"
+            ascii_part = "".join(chr(b) if 0x20 <= b < 0x7F else "." for b in chunk)
+            lines.append(f"{offset:08X}  {hex_part}  {ascii_part}")
+
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        editor = QPlainTextEdit(self)
+        editor.setReadOnly(True)
+        editor.setFont(font)
+        editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        editor.setPlainText("\n".join(lines))
+
+        status = QLabel(notice, self)
+        hint = QLabel("Esc / Q: 閉じる", self)
+        bottom = QHBoxLayout()
+        bottom.addWidget(status)
+        bottom.addStretch()
+        bottom.addWidget(hint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(editor, 1)
+        layout.addLayout(bottom)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
 
 
 # ── テキストビューア ──────────────────────────────────────
@@ -1432,11 +1852,14 @@ class DiffDialog(QDialog):
         from PySide6.QtGui import QTextCharFormat, QTextCursor
         doc = self._editor.document()
         add_fmt = QTextCharFormat()
-        add_fmt.setBackground(QColor("#d4edda"))
+        add_fmt.setBackground(QColor("#1e3a1e"))
+        add_fmt.setForeground(QColor("#b5e8b5"))
         del_fmt = QTextCharFormat()
-        del_fmt.setBackground(QColor("#f8d7da"))
+        del_fmt.setBackground(QColor("#3a1e1e"))
+        del_fmt.setForeground(QColor("#e8b5b5"))
         hunk_fmt = QTextCharFormat()
-        hunk_fmt.setBackground(QColor("#cce5ff"))
+        hunk_fmt.setBackground(QColor("#1e2a3a"))
+        hunk_fmt.setForeground(QColor("#9ac0e8"))
         selections = []
         block = doc.begin()
         while block.isValid():
@@ -1462,6 +1885,237 @@ class DiffDialog(QDialog):
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+class SideBySideDiffDialog(QDialog):
+    """左右並べの差分ダイアログ。"""
+
+    def __init__(
+        self,
+        left_name: str,
+        right_name: str,
+        left_text: str,
+        right_text: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        has_diff = left_text != right_text
+        title = f"差分: {left_name}  ↔  {right_name}"
+        if not has_diff:
+            title += "  （同一内容）"
+        self.setWindowTitle(title)
+        self.resize(1200, 700)
+
+        left_lines = left_text.splitlines()
+        right_lines = right_text.splitlines()
+
+        # SequenceMatcher で行を整列
+        aligned_left: list[tuple[int | None, str]] = []   # (lineno | None, text)
+        aligned_right: list[tuple[int | None, str]] = []
+        left_changed: list[bool] = []
+        right_changed: list[bool] = []
+        self._diff_blocks: list[int] = []  # 差分ブロック先頭の行インデックス
+
+        matcher = difflib.SequenceMatcher(None, left_lines, right_lines, autojunk=False)
+        l_no = r_no = 0
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    aligned_left.append((l_no + k + 1, left_lines[i1 + k]))
+                    aligned_right.append((r_no + k + 1, right_lines[j1 + k]))
+                    left_changed.append(False)
+                    right_changed.append(False)
+                l_no += i2 - i1
+                r_no += j2 - j1
+            else:
+                self._diff_blocks.append(len(aligned_left))
+                lc, rc = i2 - i1, j2 - j1
+                for k in range(max(lc, rc)):
+                    aligned_left.append(
+                        (l_no + k + 1, left_lines[i1 + k]) if k < lc else (None, "")
+                    )
+                    aligned_right.append(
+                        (r_no + k + 1, right_lines[j1 + k]) if k < rc else (None, "")
+                    )
+                    left_changed.append(tag in ("replace", "delete") or (tag == "insert" and k >= lc))
+                    right_changed.append(tag in ("replace", "insert") or (tag == "delete" and k >= rc))
+                l_no += lc
+                r_no += rc
+
+        max_no = max(
+            max((ln for ln, _ in aligned_left if ln is not None), default=0),
+            max((ln for ln, _ in aligned_right if ln is not None), default=0),
+        )
+        w = len(str(max_no)) if max_no > 0 else 1
+
+        def fmt(lineno: int | None, text: str) -> str:
+            if lineno is None:
+                return " " * (w + 1) + " "
+            return f"{lineno:{w}d} | {text}"
+
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+
+        self._left_editor = QPlainTextEdit(self)
+        self._left_editor.setReadOnly(True)
+        self._left_editor.setFont(font)
+        self._left_editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._left_editor.setPlainText("\n".join(fmt(ln, t) for ln, t in aligned_left))
+
+        self._right_editor = QPlainTextEdit(self)
+        self._right_editor.setReadOnly(True)
+        self._right_editor.setFont(font)
+        self._right_editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._right_editor.setPlainText("\n".join(fmt(ln, t) for ln, t in aligned_right))
+
+        self._left_sels: list = self._apply_colors(self._left_editor, left_changed, aligned_left, is_right=False)
+        self._right_sels: list = self._apply_colors(self._right_editor, right_changed, aligned_right, is_right=True)
+
+        self._syncing = False
+        for src, dst in (
+            (self._left_editor, self._right_editor),
+            (self._right_editor, self._left_editor),
+        ):
+            src.verticalScrollBar().valueChanged.connect(
+                lambda v, d=dst: self._vsync(d, v)
+            )
+            src.horizontalScrollBar().valueChanged.connect(
+                lambda v, d=dst: self._hsync(d, v)
+            )
+
+        self._cur_diff = -1
+
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        for editor, name in ((self._left_editor, left_name), (self._right_editor, right_name)):
+            w_wrap = QWidget()
+            vl = QVBoxLayout(w_wrap)
+            vl.setContentsMargins(0, 0, 0, 0)
+            vl.setSpacing(0)
+            vl.addWidget(QLabel(f"  {name}"))
+            vl.addWidget(editor)
+            splitter.addWidget(w_wrap)
+        splitter.setSizes([600, 600])
+
+        n = len(self._diff_blocks)
+        base_hint = "N: 次の差分  P: 前の差分  Esc / Q: 閉じる"
+        self._hint_label = QLabel(f"{base_hint}  ｜  差分 {n} 箇所", self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+        layout.addWidget(splitter, 1)
+        layout.addWidget(self._hint_label)
+
+    def _apply_colors(
+        self,
+        editor: QPlainTextEdit,
+        changed: list[bool],
+        aligned: list[tuple[int | None, str]],
+        *,
+        is_right: bool,
+    ) -> list:
+        from PySide6.QtGui import QTextCharFormat, QTextCursor
+
+        del_fmt = QTextCharFormat()
+        del_fmt.setBackground(QColor("#3a1e1e"))
+        del_fmt.setForeground(QColor("#e8b5b5"))
+
+        add_fmt = QTextCharFormat()
+        add_fmt.setBackground(QColor("#1e3a1e"))
+        add_fmt.setForeground(QColor("#b5e8b5"))
+
+        pad_fmt = QTextCharFormat()
+        pad_fmt.setBackground(QColor("#2a2a2a"))
+        pad_fmt.setForeground(QColor("#555555"))
+
+        selections = []
+        block = editor.document().begin()
+        for row, is_changed in enumerate(changed):
+            if not block.isValid():
+                break
+            if is_changed:
+                lineno = aligned[row][0]
+                fmt = pad_fmt if lineno is None else (add_fmt if is_right else del_fmt)
+                sel = QTextEdit.ExtraSelection()
+                cur = QTextCursor(block)
+                cur.select(QTextCursor.SelectionType.LineUnderCursor)
+                sel.cursor = cur
+                sel.format = fmt
+                selections.append(sel)
+            block = block.next()
+        editor.setExtraSelections(selections)
+        return selections
+
+    def _vsync(self, target: QPlainTextEdit, value: int) -> None:
+        if self._syncing:
+            return
+        self._syncing = True
+        target.verticalScrollBar().setValue(value)
+        self._syncing = False
+
+    def _hsync(self, target: QPlainTextEdit, value: int) -> None:
+        if self._syncing:
+            return
+        self._syncing = True
+        target.horizontalScrollBar().setValue(value)
+        self._syncing = False
+
+    def _jump_to(self, idx: int) -> None:
+        if not self._diff_blocks:
+            return
+        from PySide6.QtGui import QTextCharFormat, QTextCursor, QFont as _QFont
+
+        # カウンター更新
+        n = len(self._diff_blocks)
+        self._hint_label.setText(
+            f"N: 次の差分  P: 前の差分  Esc / Q: 閉じる  ｜  差分 {idx + 1} / {n}"
+        )
+
+        # 現在ブロックの行範囲を特定（次の差分ブロック開始まで、または末尾まで）
+        start_row = self._diff_blocks[idx]
+        end_row = self._diff_blocks[idx + 1] if idx + 1 < n else 10**9
+
+        cur_fmt = QTextCharFormat()
+        cur_fmt.setBackground(QColor("#5a4a00"))
+        cur_fmt.setForeground(QColor("#f0d040"))
+        cur_fmt.setFontWeight(_QFont.Weight.Bold)
+
+        def _current_sels(editor: QPlainTextEdit) -> list:
+            sels = []
+            doc = editor.document()
+            for row in range(start_row, min(end_row, doc.blockCount())):
+                blk = doc.findBlockByLineNumber(row)
+                if not blk.isValid():
+                    break
+                sel = QTextEdit.ExtraSelection()
+                c = QTextCursor(blk)
+                c.select(QTextCursor.SelectionType.LineUnderCursor)
+                sel.cursor = c
+                sel.format = cur_fmt
+                sels.append(sel)
+            return sels
+
+        self._left_editor.setExtraSelections(self._left_sels + _current_sels(self._left_editor))
+        self._right_editor.setExtraSelections(self._right_sels + _current_sels(self._right_editor))
+
+        block = self._left_editor.document().findBlockByLineNumber(start_row)
+        if block.isValid():
+            cur = QTextCursor(block)
+            self._left_editor.setTextCursor(cur)
+            self._left_editor.ensureCursorVisible()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.accept()
+        elif key == Qt.Key.Key_N and self._diff_blocks:
+            self._cur_diff = (self._cur_diff + 1) % len(self._diff_blocks)
+            self._jump_to(self._cur_diff)
+        elif key == Qt.Key.Key_P and self._diff_blocks:
+            self._cur_diff = (self._cur_diff - 1) % len(self._diff_blocks)
+            self._jump_to(self._cur_diff)
         else:
             super().keyPressEvent(event)
 
@@ -1678,3 +2332,57 @@ class GitLogDialog(QDialog):
 
     def selected_commit(self) -> str | None:
         return self._selected_commit
+
+
+class GitHttpCredentialsDialog(QDialog):
+    """HTTP/HTTPS リモート操作用の認証情報入力ダイアログ。"""
+
+    def __init__(
+        self,
+        url: str,
+        username: str = "",
+        password: str = "",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Git 認証")
+        self.setMinimumWidth(360)
+
+        self._username_edit = QLineEdit(self)
+        self._username_edit.setText(username)
+        self._password_edit = QLineEdit(self)
+        self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password_edit.setText(password)
+        self._save_check = QCheckBox("認証情報を保存する（Windows 資格情報マネージャー）", self)
+        self._save_check.setChecked(bool(username or password))
+
+        form = QFormLayout()
+        form.addRow("ユーザー名:", self._username_edit)
+        form.addRow("パスワード / トークン:", self._password_edit)
+
+        url_label = QLabel(f"<small>{url}</small>", self)
+        url_label.setWordWrap(True)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(url_label)
+        layout.addLayout(form)
+        layout.addWidget(self._save_check)
+        layout.addWidget(buttons)
+
+        if username:
+            self._password_edit.setFocus()
+        else:
+            self._username_edit.setFocus()
+
+    def credentials(self) -> tuple[str, str]:
+        return self._username_edit.text(), self._password_edit.text()
+
+    def should_save(self) -> bool:
+        return self._save_check.isChecked()

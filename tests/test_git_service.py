@@ -216,6 +216,119 @@ class GitServiceTests(unittest.TestCase):
             git_service.unstage(root, [path])
             self.assertEqual(git_service.status(root)[path.resolve()], " D")
 
+    def test_head_file_text_returns_committed_content(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            path = root / "note.txt"
+            path.write_bytes(b"hello\n")
+            git_service.stage(root, [path])
+            git_service.commit(root, "initial")
+
+            # コミット後の内容が取得できる
+            self.assertEqual(git_service.head_file_text(root, path), "hello\n")
+
+            # ワーキングツリーを変更してもHEADは変わらない
+            path.write_bytes(b"world\n")
+            self.assertEqual(git_service.head_file_text(root, path), "hello\n")
+
+    def test_head_file_text_returns_empty_for_untracked(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            path = root / "new.txt"
+            path.write_text("untracked\n", encoding="utf-8")
+
+            # 未追跡ファイルは空文字
+            self.assertEqual(git_service.head_file_text(root, path), "")
+
+    def test_get_remote_url_returns_configured_url(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            path = root / "note.txt"
+            path.write_text("x\n", encoding="utf-8")
+            git_service.stage(root, [path])
+            git_service.commit(root, "initial")
+
+            remote_url = "https://example.com/repo.git"
+            repo = __import__("dulwich.repo", fromlist=["Repo"]).Repo(str(root))
+            config = repo.get_config()
+            config.set((b"remote", b"origin"), b"url", remote_url.encode())
+            config.write_to_path()
+            repo.close()
+
+            self.assertEqual(git_service.get_remote_url(root), remote_url)
+            self.assertTrue(git_service.is_http_remote(root))
+
+    def test_is_http_remote_false_for_ssh(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            path = root / "note.txt"
+            path.write_text("x\n", encoding="utf-8")
+            git_service.stage(root, [path])
+            git_service.commit(root, "initial")
+
+            repo = __import__("dulwich.repo", fromlist=["Repo"]).Repo(str(root))
+            config = repo.get_config()
+            config.set((b"remote", b"origin"), b"url", b"git@github.com:user/repo.git")
+            config.write_to_path()
+            repo.close()
+
+            self.assertFalse(git_service.is_http_remote(root))
+
+    def test_push_embeds_http_credentials_in_url(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            # HTTPSリモートを設定
+            repo_obj = __import__("dulwich.repo", fromlist=["Repo"]).Repo(str(root))
+            config = repo_obj.get_config()
+            config.set((b"remote", b"origin"), b"url", b"https://github.com/user/repo.git")
+            config.write_to_path()
+            repo_obj.close()
+
+            with patch.object(
+                git_service.porcelain,
+                "push",
+                return_value=object(),
+            ) as push_mock:
+                git_service.push(root, username="user", password="token")
+
+            loc = push_mock.call_args.kwargs.get("remote_location", "")
+            self.assertIn("user", loc)
+            self.assertIn("token", loc)
+            self.assertIn("github.com", loc)
+
+    def test_pull_embeds_http_credentials_in_url(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "repo"
+            _init_repo(root)
+            path = root / "note.txt"
+            path.write_bytes(b"x\n")
+            git_service.stage(root, [path])
+            git_service.commit(root, "initial")
+            repo_obj = __import__("dulwich.repo", fromlist=["Repo"]).Repo(str(root))
+            config = repo_obj.get_config()
+            config.set((b"remote", b"origin"), b"url", b"https://github.com/user/repo.git")
+            config.write_to_path()
+            repo_obj.close()
+
+            with patch.object(
+                git_service.porcelain,
+                "pull",
+                return_value=object(),
+            ) as pull_mock:
+                try:
+                    git_service.pull(root, username="user", password="token")
+                except Exception:
+                    pass
+
+            loc = pull_mock.call_args.kwargs.get("remote_location", "")
+            self.assertIn("user", loc)
+            self.assertIn("token", loc)
+
 
 if __name__ == "__main__":
     unittest.main()

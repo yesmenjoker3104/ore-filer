@@ -862,3 +862,10 @@ def text_diff(left: Path, right: Path) -> str:
         tofile=right.name,
     ))
     return "".join(lines)
+
+
+def read_text_pair(left: Path, right: Path) -> tuple[str, str]:
+    """2ファイルのテキストを (left_text, right_text) で返す。読込失敗時は ValueError。"""
+    left_text, _ = read_text_preview(left)
+    right_text, _ = read_text_preview(right)
+    return left_text, right_text

@@ -288,16 +288,63 @@ def _remote_call(func, repo, operation: str, **kwargs):
     return result, output.text().strip()
 
 
-def _ssh_transport_kwargs(
+def _transport_kwargs(
+    *,
     ssh_command: str | None = None,
     key_filename: str | Path | None = None,
-) -> dict[str, str]:
-    kwargs: dict[str, str] = {}
+) -> dict:
+    kwargs: dict = {}
     if ssh_command:
         kwargs["ssh_command"] = ssh_command
     if key_filename:
         kwargs["key_filename"] = str(Path(key_filename).expanduser())
     return kwargs
+
+
+def _inject_credentials(url: str, username: str | None, password: str | None) -> str:
+    """HTTP/HTTPS URLにユーザー名・パスワードを埋め込んで返す。"""
+    if not (username or password):
+        return url
+    from urllib.parse import urlparse, urlunparse, quote
+    parsed = urlparse(url)
+    u = quote(username or "", safe="")
+    p = quote(password or "", safe="")
+    netloc = f"{u}:{p}@{parsed.hostname}"
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def get_remote_url(repo: str | Path, remote: str = "origin") -> str | None:
+    """指定リモートのURLを返す。リモートが存在しなければ None。"""
+    try:
+        repo_obj = _open_repo(repo)
+        config = repo_obj.get_config()
+        url = config.get((b"remote", remote.encode()), b"url")
+        return url.decode("utf-8") if isinstance(url, bytes) else url
+    except Exception:
+        return None
+
+
+def is_http_remote(repo: str | Path, remote: str = "origin") -> bool:
+    """originがHTTP/HTTPSリモートかどうかを返す。"""
+    url = get_remote_url(repo, remote)
+    return url is not None and url.startswith(("http://", "https://"))
+
+
+def _auth_location(repo_obj, username: str | None, password: str | None) -> str | None:
+    """HTTP認証が必要な場合のみ資格情報埋め込みURLを返す。不要なら None。"""
+    if not (username or password):
+        return None
+    try:
+        config = repo_obj.get_config()
+        url = config.get((b"remote", b"origin"), b"url")
+        url = url.decode("utf-8") if isinstance(url, bytes) else url
+    except Exception:
+        return None
+    if not url or not url.startswith(("http://", "https://")):
+        return None
+    return _inject_credentials(url, username, password)
 
 
 def fetch(
@@ -306,19 +353,17 @@ def fetch(
     *,
     ssh_command: str | None = None,
     key_filename: str | Path | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> str:
     """リモートの参照を取得する（作業ツリーは変更しない）。"""
     repo_obj = _open_repo(repo)
     try:
-        kwargs = _ssh_transport_kwargs(ssh_command, key_filename)
-        if remote_location is not None:
-            kwargs["remote_location"] = str(remote_location)
-        result, output = _remote_call(
-            porcelain.fetch,
-            repo_obj,
-            "fetch",
-            **kwargs,
-        )
+        kwargs = _transport_kwargs(ssh_command=ssh_command, key_filename=key_filename)
+        loc = str(remote_location) if remote_location is not None else _auth_location(repo_obj, username, password)
+        if loc:
+            kwargs["remote_location"] = loc
+        result, output = _remote_call(porcelain.fetch, repo_obj, "fetch", **kwargs)
         return output or f"fetch completed ({len(result.refs)} refs)"
     finally:
         repo_obj.close()
@@ -329,6 +374,8 @@ def pull(
     *,
     ssh_command: str | None = None,
     key_filename: str | Path | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> str:
     """リモートからfast-forwardのみで取り込む。"""
     repo_obj = _open_repo(repo)
@@ -340,14 +387,14 @@ def pull(
             or local_status.untracked
         ):
             raise GitError("pull failed: ローカルに未コミットの変更があります")
+        kwargs = _transport_kwargs(ssh_command=ssh_command, key_filename=key_filename)
+        loc = _auth_location(repo_obj, username, password)
+        if loc:
+            kwargs["remote_location"] = loc
         result, output = _remote_call(
-            porcelain.pull,
-            repo_obj,
-            "pull",
-            fast_forward=True,
-            ff_only=True,
-            force=True,
-            **_ssh_transport_kwargs(ssh_command, key_filename),
+            porcelain.pull, repo_obj, "pull",
+            fast_forward=True, ff_only=True, force=True,
+            **kwargs,
         )
         return output or "pull completed"
     finally:
@@ -359,19 +406,33 @@ def push(
     *,
     ssh_command: str | None = None,
     key_filename: str | Path | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> str:
-    """SSH鍵またはssh-agentを使って現在のブランチをリモートへ送信する。"""
+    """現在のブランチをリモートへ送信する（SSH・HTTP両対応）。"""
     repo_obj = _open_repo(repo)
     try:
-        result, output = _remote_call(
-            porcelain.push,
-            repo_obj,
-            "push",
-            **_ssh_transport_kwargs(ssh_command, key_filename),
-        )
+        kwargs = _transport_kwargs(ssh_command=ssh_command, key_filename=key_filename)
+        loc = _auth_location(repo_obj, username, password)
+        if loc:
+            kwargs["remote_location"] = loc
+        result, output = _remote_call(porcelain.push, repo_obj, "push", **kwargs)
         return output or "push completed"
     finally:
         repo_obj.close()
+
+
+def head_file_text(repo: str | Path, path: Path) -> str:
+    """HEAD のファイル内容をテキストで返す。未追跡・新規ファイルは空文字。"""
+    try:
+        repo_obj = _open_repo(repo)
+        head = repo_obj.head()
+        head_tree = repo_obj[repo_obj[head].tree]
+        relative = _relative_paths(repo_obj, [Path(path)])[0]
+        _, sha = head_tree.lookup_path(repo_obj.__getitem__, os.fsencode(relative))
+        return repo_obj[sha].data.decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
 
 def diff(repo: str | Path, path: Path) -> str:

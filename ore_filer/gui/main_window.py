@@ -14,7 +14,17 @@ from PySide6.QtWidgets import (
 )
 
 from ore_filer.gui.dialogs import (
+	CSV_EXTENSIONS,
+	CsvViewerDialog,
+	HTML_EXTENSIONS,
+	HtmlViewerDialog,
+	JSON_EXTENSIONS,
+	JsonViewerDialog,
+	LOG_EXTENSIONS,
+	LogViewerDialog,
 	MARKDOWN_EXTENSIONS,
+	PDF_EXTENSIONS,
+	PdfViewerDialog,
 	ArchiveDialog,
 	BookmarkDialog,
 	BulkRenameDialog,
@@ -26,17 +36,26 @@ from ore_filer.gui.dialogs import (
 	FilterDialog,
 	GitCommandThread,
 	GitCommitDialog,
+	GitHttpCredentialsDialog,
 	GitLogDialog,
 	GitStatusThread,
+	SideBySideDiffDialog,
 	GrepDialog,
 	HistoryDialog,
 	IMAGE_EXTENSIONS,
 	ImageViewerDialog,
 	KeymapHelpDialog,
+	HEX_EXTENSIONS,
+	HexViewerDialog,
+	PLAINTEXT_EXTENSIONS,
 	SearchDialog,
 	SortDialog,
+	SVG_EXTENSIONS,
+	SvgViewerDialog,
 	TextViewerDialog,
 	MarkdownViewerDialog,
+	XML_EXTENSIONS,
+	XmlViewerDialog,
 )
 from ore_filer.services import git_service
 from ore_filer.gui.keymap import KeyMap, user_keymap_file
@@ -55,6 +74,7 @@ from ore_filer.services.file_operations import (
 	delete_paths,
 	disk_usage,
 	reveal_in_explorer,
+	read_text_pair,
 	text_diff,
 	trash_paths,
 	is_archive_path,
@@ -459,9 +479,33 @@ class MainWindow(QMainWindow):
 		elif path.suffix.casefold() in MARKDOWN_EXTENSIONS:
 			self._open_markdown_viewer(path)
 			return True
-		import tempfile, os
-		with open(os.path.join(tempfile.gettempdir(), "ore_filer_debug.txt"), "a") as _f:
-			_f.write(f"enter: path={path} suffix={path.suffix.casefold()!r} in_ext={path.suffix.casefold() in IMAGE_EXTENSIONS}\n")
+		elif path.suffix.casefold() in HTML_EXTENSIONS:
+			self._open_html_viewer(path)
+			return True
+		elif path.suffix.casefold() in PDF_EXTENSIONS:
+			self._open_pdf_viewer(path)
+			return True
+		elif path.suffix.casefold() in CSV_EXTENSIONS:
+			self._open_csv_viewer(path)
+			return True
+		elif path.suffix.casefold() in JSON_EXTENSIONS:
+			self._open_json_viewer(path)
+			return True
+		elif path.suffix.casefold() in XML_EXTENSIONS:
+			self._open_xml_viewer(path)
+			return True
+		elif path.suffix.casefold() in LOG_EXTENSIONS:
+			self._open_log_viewer(path)
+			return True
+		elif path.suffix.casefold() in SVG_EXTENSIONS:
+			self._open_svg_viewer(path)
+			return True
+		elif path.suffix.casefold() in PLAINTEXT_EXTENSIONS:
+			self._open_plaintext_viewer(path)
+			return True
+		elif path.suffix.casefold() in HEX_EXTENSIONS:
+			self._open_hex_viewer(path)
+			return True
 		return False
 
 	def _open_image_viewer(self, path: Path) -> None:
@@ -493,6 +537,47 @@ class MainWindow(QMainWindow):
 			return
 		dialog = MarkdownViewerDialog(path, text, encoding, self)
 		dialog.exec()
+
+	def _open_html_viewer(self, path: Path) -> None:
+		HtmlViewerDialog(path, self).exec()
+
+	def _open_pdf_viewer(self, path: Path) -> None:
+		try:
+			PdfViewerDialog(path, self).exec()
+		except Exception as error:
+			QMessageBox.critical(self, "PDF Viewer", f"PDF を開けませんでした：\n{error}")
+
+	def _open_csv_viewer(self, path: Path) -> None:
+		CsvViewerDialog(path, self).exec()
+
+	def _open_json_viewer(self, path: Path) -> None:
+		JsonViewerDialog(path, self).exec()
+
+	def _open_xml_viewer(self, path: Path) -> None:
+		XmlViewerDialog(path, self).exec()
+
+	def _open_log_viewer(self, path: Path) -> None:
+		LogViewerDialog(path, self).exec()
+
+	def _open_svg_viewer(self, path: Path) -> None:
+		try:
+			SvgViewerDialog(path, self).exec()
+		except Exception as error:
+			QMessageBox.critical(self, "SVG Viewer", f"SVG を開けませんでした：\n{error}")
+
+	def _open_plaintext_viewer(self, path: Path) -> None:
+		try:
+			text, encoding = read_text_preview(path)
+		except ValueError as error:
+			QMessageBox.warning(self, "テキスト Viewer", str(error))
+			return
+		except OSError as error:
+			QMessageBox.critical(self, "テキスト Viewer", f"読み込みに失敗しました：\n{error}")
+			return
+		TextViewerDialog(path, text, encoding, self).exec()
+
+	def _open_hex_viewer(self, path: Path) -> None:
+		HexViewerDialog(path, self).exec()
 
 	def create_archive(self) -> None:
 		if self._archive_thread is not None and self._archive_thread.isRunning():
@@ -1686,14 +1771,14 @@ class MainWindow(QMainWindow):
 			QMessageBox.information(self, "差分表示", "ファイルを選択してください（フォルダは不可）。")
 			return
 		try:
-			diff = text_diff(left_path, right_path)
+			left_text, right_text = read_text_pair(left_path, right_path)
 		except ValueError as e:
 			QMessageBox.warning(self, "差分表示", str(e))
 			return
 		except OSError as e:
 			QMessageBox.warning(self, "差分表示", f"読み込みに失敗しました:\n{e}")
 			return
-		DiffDialog(left_path.name, right_path.name, diff, self).exec()
+		SideBySideDiffDialog(left_path.name, right_path.name, left_text, right_text, self).exec()
 
 	# ── Git 操作 ─────────────────────────────────────────────
 
@@ -1853,6 +1938,24 @@ class MainWindow(QMainWindow):
 		thread.finished.connect(thread.deleteLater)
 		thread.start()
 
+	def _http_credentials(self, repo) -> tuple[str, str] | None:
+		"""HTTPリモートの場合に認証ダイアログを表示してcredentialsを返す。不要なら(None,None)相当。"""
+		from ore_filer import credentials as cred_store
+		url = git_service.get_remote_url(repo)
+		if not (url and url.startswith(("http://", "https://"))):
+			return ("", "")
+		saved = cred_store.load("git", url)
+		username, password = saved if saved else ("", "")
+		dlg = GitHttpCredentialsDialog(url, username=username, password=password, parent=self)
+		if dlg.exec() != GitHttpCredentialsDialog.DialogCode.Accepted:
+			return None
+		username, password = dlg.credentials()
+		if dlg.should_save():
+			cred_store.save("git", url, username, password)
+		else:
+			cred_store.delete("git", url)
+		return username, password
+
 	def git_fetch(self) -> None:
 		"""リモートの参照を取得する。作業ツリーは変更しない。"""
 		repo = self._git_repo()
@@ -1865,8 +1968,15 @@ class MainWindow(QMainWindow):
 		)
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
+		creds = self._http_credentials(repo)
+		if creds is None:
+			return
+		username, password = creds
 		self.statusBar().showMessage("git fetch 実行中...")
-		thread = GitCommandThread(lambda r=repo: git_service.fetch(r), self)
+		thread = GitCommandThread(
+			lambda r=repo, u=username, p=password: git_service.fetch(r, username=u or None, password=p or None),
+			self,
+		)
 		thread.succeeded.connect(lambda out: self._on_git_sync_done("fetch", out))
 		thread.failed.connect(lambda err: self._on_git_command_failed("fetch", err))
 		thread.finished.connect(thread.deleteLater)
@@ -1884,8 +1994,15 @@ class MainWindow(QMainWindow):
 		)
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
+		creds = self._http_credentials(repo)
+		if creds is None:
+			return
+		username, password = creds
 		self.statusBar().showMessage("git pull 実行中...")
-		thread = GitCommandThread(lambda r=repo: git_service.pull(r), self)
+		thread = GitCommandThread(
+			lambda r=repo, u=username, p=password: git_service.pull(r, username=u or None, password=p or None),
+			self,
+		)
 		thread.succeeded.connect(lambda out: self._on_git_sync_done("pull", out))
 		thread.failed.connect(lambda err: self._on_git_command_failed("pull", err))
 		thread.finished.connect(thread.deleteLater)
@@ -1903,8 +2020,15 @@ class MainWindow(QMainWindow):
 		)
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
+		creds = self._http_credentials(repo)
+		if creds is None:
+			return
+		username, password = creds
 		self.statusBar().showMessage("git push 実行中...")
-		thread = GitCommandThread(lambda r=repo: git_service.push(r), self)
+		thread = GitCommandThread(
+			lambda r=repo, u=username, p=password: git_service.push(r, username=u or None, password=p or None),
+			self,
+		)
 		thread.succeeded.connect(lambda out: self._on_git_sync_done("push", out))
 		thread.failed.connect(lambda err: self._on_git_command_failed("push", err))
 		thread.finished.connect(thread.deleteLater)
@@ -1920,11 +2044,12 @@ class MainWindow(QMainWindow):
 			QMessageBox.information(self, "Git 差分", "ファイルを選択してください。")
 			return
 		try:
-			diff_text = git_service.diff(repo, path)
+			head_text = git_service.head_file_text(repo, path)
+			work_text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
 		except Exception as e:
 			QMessageBox.warning(self, "Git 差分", str(e))
 			return
-		DiffDialog("HEAD", path.name, diff_text, self).exec()
+		SideBySideDiffDialog("HEAD", path.name, head_text, work_text, self).exec()
 
 	def git_log(self) -> None:
 		"""Git ログを表示し、選択したコミットの差分を表示する。"""
