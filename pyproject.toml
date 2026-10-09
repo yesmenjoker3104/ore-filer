@@ -13,6 +13,7 @@ dependencies = [
     "dulwich>=1.2,<2",
     "pyzipper>=0.3.6,<1",
     "py7zr>=1.1,<2",
+    "keyring>=25,<27",
 ]
 
 [tool.setuptools.packages.find]
