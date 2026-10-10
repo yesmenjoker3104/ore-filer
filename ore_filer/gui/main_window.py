@@ -275,6 +275,7 @@ class MainWindow(QMainWindow):
 			pane.set_show_hidden(_show_hidden)
 
 		self._git_status_threads: dict[int, GitStatusThread] = {}
+		self._git_windows: dict = {}
 		for pane in self.panes:
 			pane.path_changed.connect(
 				lambda _path, p=pane: self._refresh_git_status(p)
@@ -1824,8 +1825,8 @@ class MainWindow(QMainWindow):
 		return git_service.find_repo_root(self.active_pane.current_path)
 
 	def show_git_menu(self) -> None:
-		"""G: Git メニューを表示する。"""
-		from PySide6.QtWidgets import QMenu
+		"""G: Git ウィンドウを開く。"""
+		from ore_filer.gui.git_window import GitWindow
 
 		if not git_service.is_available():
 			QMessageBox.information(
@@ -1839,25 +1840,20 @@ class MainWindow(QMainWindow):
 			QMessageBox.information(self, "Git", "Git リポジトリではありません。")
 			return
 
-		menu = QMenu(self)
-		menu.addAction("ステージ (&A)", self.git_stage)
-		menu.addAction("ステージ解除 (&R)", self.git_unstage)
-		menu.addSeparator()
-		menu.addAction("コミット... (&C)", self.git_commit)
-		menu.addSeparator()
-		menu.addAction("fetch (&F)", self.git_fetch)
-		menu.addAction("pull (&L)", self.git_pull)
-		menu.addAction("push (&P)", self.git_push)
-		menu.addSeparator()
-		menu.addAction("差分 (&D)", self.git_diff)
-		menu.addAction("ログ (&G)", self.git_log)
-		menu.addSeparator()
-		menu.addAction("ブランチ切替 (&B)", self.git_switch_branch)
+		win = self._git_windows.get(repo)
+		if win is None:
+			win = GitWindow(repo, self)
+			win.repo_changed.connect(self._on_git_repo_changed)
+			self._git_windows[repo] = win
 
-		pos = self.active_pane.file_view.mapToGlobal(
-			self.active_pane.file_view.rect().center()
-		)
-		menu.exec(pos)
+		win.show()
+		win.raise_()
+		win.activateWindow()
+		win._refresh()
+
+	def _on_git_repo_changed(self) -> None:
+		for pane in self.panes:
+			self._refresh_git_status(pane)
 
 	def git_stage(self) -> None:
 		"""選択/カーソル項目をステージする。"""
