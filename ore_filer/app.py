@@ -1,3 +1,5 @@
+import faulthandler
+import os
 import sys
 import traceback
 from datetime import datetime
@@ -44,7 +46,27 @@ def _session_start_path(history: list[str]) -> Path:
     return Path.home()
 
 
+def _capture_native_output() -> None:
+    # Qt の致命的エラーや Python の fatal error は stderr に出るが、windowed exe では捨てられるためログへ向ける
+    try:
+        log_path = session_file().with_name("error.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log = log_path.open("a", encoding="utf-8", buffering=1)
+    except OSError:
+        return
+    log.write(f"--- start {datetime.now().isoformat(timespec='seconds')} ---\n")
+    sys.stderr = log
+    sys.stdout = log
+    try:
+        os.dup2(log.fileno(), 2)
+    except OSError:
+        pass
+    faulthandler.enable(file=log, all_threads=True)
+
+
 def main() -> int:
+    if getattr(sys, "frozen", False):
+        _capture_native_output()
     sys.excepthook = _log_unhandled_exception
     cleanup_old_exe()
     _set_windows_app_user_model_id()
