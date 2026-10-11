@@ -43,15 +43,38 @@ jobs:
           --add-data "ore_filer/icon.ico;ore_filer"
           ore_filer/app.py
 
-      - name: Upload executable
+      - name: Check out app-launcher
+        uses: actions/checkout@v4
+        with:
+          repository: yesmenjoker3104/app-launcher
+          path: app-launcher
+
+      - name: Build app-launcher
+        shell: pwsh
+        run: ./app-launcher/build.ps1
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $Package = "package"
+          New-Item -ItemType Directory -Force "$Package/app-launcher" | Out-Null
+          Copy-Item "dist/ore-filer.exe" "$Package/ore-filer.exe"
+          Copy-Item "app-launcher/dist/app-launcher/app-launcher.exe" "$Package/app-launcher/app-launcher.exe"
+          Compress-Archive -Path "$Package/*" -DestinationPath "ore-filer-Windows.zip"
+
+      - name: Upload executable and zip
         uses: actions/upload-artifact@v4
         with:
           name: ore-filer-windows
-          path: dist/ore-filer.exe
+          path: |
+            dist/ore-filer.exe
+            ore-filer-Windows.zip
           if-no-files-found: error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ore-filer.exe
+          files: |
+            dist/ore-filer.exe
+            ore-filer-Windows.zip

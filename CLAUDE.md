@@ -46,6 +46,8 @@ GUI・CLI・プラグインはすべて `services/` を経由してファイル�
 - **`gui/pane.py`** — 1ペインのUI。`QFileSystemModel` + `QTreeView` でファイル一覧を表示。アーカイブ内閲覧モードと通常ディレクトリモードを切り替える
 - **`services/file_operations.py`** — コピー・移動・削除・アーカイブ作成/展開の本体。zip/jar/apk は `pyzipper`、7z は `py7zr` を使用
 - **`services/git_service.py`** — DulwichによるGit操作サービス。`git.exe`やGit CLIに依存せず、状態確認、ローカル操作、fetch、push、fast-forward限定のpullを扱う
+- **`services/app_launcher.py`** — 外部CLI `app-launcher.exe` の呼び出しラッパー。JSON応答を読み、失敗時は `AppLauncherError` を送出する。exe は `config.json` の `app_launcher_path`、次にore-filerと同じフォルダの `app-launcher\app-launcher.exe` の順に探す
+- **`gui/app_launcher_dialog.py`** — `L` で開く登録アプリダイアログ。一覧タブとアプリ設定タブを持つ。登録データは app-launcher 側の `apps.json` で、ore-filer 側では持たない
 - **`settings.py`** — セッション情報（ディレクトリ履歴）を `%APPDATA%\ore-filer\session.json` に、アプリ設定（エディタパス・隠しファイル表示等）を `%APPDATA%\ore-filer\config.json` に保存・復元
 
 ### キーマップ

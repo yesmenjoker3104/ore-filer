@@ -28,6 +28,8 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 - `ore_filer/gui/`: PySide6の画面、ペイン、キー操作、ダイアログ
 - `ore_filer/services/`: GUI・CLI・プラグインで共有するファイル操作
 - `ore_filer/services/git_service.py`: DulwichによるGit状態確認、ローカル操作、Fetch/Push
+- `ore_filer/services/app_launcher.py`: 外部CLI `app-launcher` の呼び出し。JSON応答を読み、失敗時は例外にする
+- `ore_filer/gui/app_launcher_dialog.py`: 登録アプリの一覧（`L`）とアプリ設定のダイアログ。登録データは`app-launcher`側で管理する
 - `ore_filer/api/`: Pythonプラグイン向け公開API
 - `ore_filer/cli/`: CLI入口と引数処理
 - `config/keymap.toml`: 外部キー設定

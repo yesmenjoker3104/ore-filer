@@ -89,6 +89,8 @@ from ore_filer.services.file_operations import (
 	extract_archive,
 )
 
+from ..services.app_launcher import find_app_launcher
+from .app_launcher_dialog import AppLauncherDialog
 
 class FileOperationThread(QThread):
 	completed = Signal()
@@ -1226,6 +1228,9 @@ class MainWindow(QMainWindow):
 			elif action == "terminal":
 				self.open_terminal_here()
 				return True
+			elif action == "open_with_app":
+				self.open_with_registered_app()
+				return True
 			elif action == "compare":
 				self.compare_select()
 				return True
@@ -1375,7 +1380,7 @@ class MainWindow(QMainWindow):
 		geo = self.geometry()
 		x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
 		min_w = max(self.minimumWidth(), 200)
-		min_h = max(self.minimumHeight(), 150)
+		min_h = max(self.MinimumHeight(), 150)
 		step = self._RESIZE_STEP
 		if key == Qt.Key.Key_Right:
 			w = max(min_w, w + step)
@@ -1565,6 +1570,20 @@ class MainWindow(QMainWindow):
 			open_terminal(self.active_pane.current_path)
 		except OSError as e:
 			QMessageBox.warning(self, "ターミナル", f"起動できませんでした:\n{e}")
+
+	# ── 登録アプリで開く ──────────────────────────────────────
+
+	def open_with_registered_app(self) -> None:
+		exe = find_app_launcher()
+		if exe is None:
+			QMessageBox.warning(
+				self,
+				"アプリランチャー",
+				"app-launcherが見つかりません。\n"
+				"インストール先を確認するか、config.json の app_launcher_path を設定してください。",
+			)
+			return
+		AppLauncherDialog(exe, self, target_files=self.active_pane.selected_paths()).exec()
 
 	# ── 一括リネーム ──────────────────────────────────────────
 

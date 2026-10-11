@@ -51,7 +51,8 @@ ore-filer/
 │   │   ├── directory_service.py
 │   │   ├── search_service.py
 │   │   ├── file_model.py
-│   │   └── file_operations.py
+│   │   ├── file_operations.py
+│   │   └── app_launcher.py
 │   ├── api/
 │   │   ├── app.py
 │   │   ├── command.py
@@ -62,6 +63,7 @@ ore-filer/
 │   │   ├── pane.py
 │   │   ├── dialogs.py
 │   │   ├── keymap.py
+│   │   ├── app_launcher_dialog.py
 │   │   └── commands.py
 │   └── cli/
 │       └── main.py
@@ -93,6 +95,7 @@ ore-filer/
 | `dialogs.py`     | 確認、入力、エラー表示などのダイアログ                  |
 | `keymap.py`      | キー入力とコマンドの対応、外部キー設定の読み込み        |
 | `commands.py`    | GUIから実行するコマンドの定義と処理の振り分け           |
+| `app_launcher_dialog.py` | 登録アプリの一覧（`L`）とアプリ設定のダイアログ    |
 
 ### `ore_filer/services/`
 
@@ -106,6 +109,7 @@ GUI、CLI、プラグインから共通利用するファイル操作の本体�
 | `file_model.py`        | ファイルやディレクトリの情報、一覧データのモデル     |
 | `file_operations.py`   | 時間のかかるファイル操作、進捗、キャンセルの共通処理 |
 | `git_service.py`       | DulwichによるGit状態、ローカル操作、Fetch/Push       |
+| `app_launcher.py`      | 外部CLI app-launcher の呼び出し（一覧、起動、登録元の管理） |
 
 ### `ore_filer/api/`
 
@@ -211,11 +215,15 @@ Pythonプラグインや外部連携向けの安定した公開APIを担当す�
 
 ## Windows版exeのビルド
 
-GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeをビルドできます。
+GitHub Actionsの`Build Windows executable`ワークフローでWindows版を作成します。
 
 - `main`ブランチへのpushで自動実行
 - Actions画面の`Run workflow`から手動実行も可能
-- 完了後、Artifactの`ore-filer-windows`から`ore-filer.exe`を取得
+- `v*`タグのpushでGitHub Releaseを作成し、次の2つを添付する
+  - `ore-filer.exe`: 自動更新（`updater.py`）が取得する本体
+  - `ore-filer-Windows.zip`: `ore-filer.exe`と`app-launcher\app-launcher.exe`を含む一式
+- 開発時のArtifactは`ore-filer-windows`（同じ2ファイル）
+- ワークフローは`yesmenjoker3104/app-launcher`をチェックアウトし、`build.ps1`で`app-launcher.exe`をビルドして同梱する
 
 ## 自動更新
 
@@ -315,6 +323,7 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版exeを
 | `W`       | ターミナルを開く                                 |
 | `Shift+W` | エクスプローラーで開く                           |
 | `Shift+X` | 左右ペインのファイルを差分表示                   |
+| `L`       | 登録アプリで開く（アプリランチャー）             |
 
 ### ブックマーク・履歴
 
@@ -433,6 +442,36 @@ quit = "Q"
 - 壊れたTOML
 
 設定が壊れている場合はエラーを表示し、標準設定で起動する。将来的には`Z`キーによる設定再読み込みに対応する。
+
+## アプリランチャー連携
+
+`L`で、登録済みアプリのダイアログ（アプリランチャー）を開く。アプリの登録と起動は外部CLIの`app-launcher`が行い、ore-filerはそのCLIをsubprocessで呼び出す。
+
+起動対象は、アクティブペインでマークした項目。マークが無い場合は、ファイルを渡さずにアプリだけを起動する。カーソル項目は対象にならない。複数のファイルを選択した場合は、1つのアプリにまとめて渡す。
+
+ダイアログの一覧タブ:
+
+| キー      | 操作                                                         |
+| --------- | ------------------------------------------------------------ |
+| `↑` / `↓` | アプリを選択                                                 |
+| `Enter`   | 選択したアプリを起動                                         |
+| `→`       | アプリ設定タブへ切り替え                                     |
+| 文字入力  | インクリメンタルフィルタ（`Backspace`で1文字削除、`Esc`で解除） |
+
+`L`は、Gitメニュー内の`L`（pull）とは別の操作。
+
+アプリ設定タブ:
+
+- フォルダを登録元として追加し、配下のexeを検知する
+- 再帰（サブフォルダも検知するか）は、登録後も切り替えられる
+- 再スキャン、登録元の削除
+- 検知したexeごとに、エイリアス編集と「一覧に表示」の切り替え（即時保存）。「一覧に表示」をOFFにしても、エイリアスでは起動できる
+- 親フォルダを再帰登録すると、配下の登録元は親へ統合される。配下のフォルダを追加した場合は登録せず、親を再スキャンして通知する
+
+設定と保存先:
+
+- `app-launcher.exe`は、`%APPDATA%\ore-filer\config.json`の`app_launcher_path`（絶対パス）を優先する。未指定の場合は、ore-filerと同じフォルダの`app-launcher\app-launcher.exe`を使う。配布zipにはこのフォルダが含まれる（自動更新で取得する`ore-filer.exe`単体には含まれない）
+- 登録データは`%LOCALAPPDATA%\app-launcher\apps.json`に保存され、`app-launcher`が管理する
 
 ## CLI
 
