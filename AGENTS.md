@@ -6,7 +6,7 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 
 ## 技術スタック
 
-- Python 3.12以上
+- Python 3.12以上（配布exeのビルドはCIでPython 3.13を使う）
 - PySide6
 - Dulwich（Git操作。`git.exe`は不要）
 - setuptools（`pyproject.toml`）
@@ -28,7 +28,9 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 - `ore_filer/gui/`: PySide6の画面、ペイン、キー操作、ダイアログ
 - `ore_filer/services/`: GUI・CLI・プラグインで共有するファイル操作
 - `ore_filer/services/git_service.py`: DulwichによるGit状態確認、ローカル操作、Fetch/Push
-- `ore_filer/services/remote_service.py`: paramikoによるSFTP接続、ブラウズ、アップロード・ダウンロード（ホストキーはknown_hostsで検証。paramikoは4系で凍結exeのknown_hosts照合がアクセス違反を起こしたため3.x系に固定）
+- `ore_filer/services/remote_service.py`: paramikoによるSFTP接続、ブラウズ、アップロード・ダウンロード（ホストキーは`known_hosts`で検証し、未登録のホストには接続しない）
+- `ore_filer/services/remote_process.py`: SFTP処理を行う子プロセス。同じexeを`ORE_FILER_SFTP_WORKER=1`で起動し、stdin/stdoutのJSON行で命令と応答をやり取りする。paramikoをGUIプロセスから分離するため（凍結exeでSIGABRTが起きたため）。`ore_filer/app.py`と`ore_filer/__main__.py`の両方にワーカー起動の分岐がある
+- `ore_filer/gui/threads.py`: 接続・一覧取得は`RemoteSessionProcess`（子プロセス）を使う。UIスレッドでは実行しない
 - `ore_filer/credentials.py`: keyringによるパスワード保存（Windows資格情報マネージャー、サービス名`ore-filer/sftp`）
 - `ore_filer/gui/remote_dialog.py`: SFTP接続ダイアログ（`Ctrl+Shift+S`）。プロファイル保存（パスワードは含めない）
 - `ore_filer/services/app_launcher.py`: 外部CLI `app-launcher` の呼び出し。JSON応答を読み、失敗時は例外にする

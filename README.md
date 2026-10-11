@@ -59,6 +59,7 @@ ore-filer/
 │   │   ├── file_operations.py
 │   │   ├── git_service.py
 │   │   ├── app_launcher.py
+│   │   ├── remote_process.py     # SFTP処理を行う子プロセス（JSON行でstdin/stdoutと通信）
 │   │   └── remote_service.py     # SFTP接続・一覧・アップロード・ダウンロード
 │   ├── api/
 │   │   ├── app.py
@@ -137,6 +138,7 @@ GUI、CLI、プラグインから共通利用するファイル操作の本体�
 | `git_service.py`       | DulwichによるGit状態、ローカル操作、Fetch/Push       |
 | `app_launcher.py`      | 外部CLI app-launcher の呼び出し（一覧、起動、登録元の管理） |
 | `remote_service.py`    | SFTP（paramiko）による接続、ディレクトリ一覧、アップロード、ダウンロード。パスワード認証と鍵認証に対応 |
+| `remote_process.py`    | SFTP処理を行う子プロセス。同じexeを`ORE_FILER_SFTP_WORKER=1`で起動し、stdin/stdoutのJSON行で命令と応答をやり取りする。paramikoをGUIプロセスから分離する |
 
 ### `ore_filer/api/`
 
@@ -463,6 +465,7 @@ Git メニューのアクセラレータ:
 - 配布exeでは、標準エラー出力と faulthandler のネイティブクラッシュ情報も `error.log` に追記される（Python 側で捕まらない abort の調査用）
 - 「パスワードを保存する」にチェックを入れると、パスワードをWindows資格情報マネージャーに保存する（サービス名 `ore-filer/sftp`）。資格情報マネージャーが使えない環境ではチェックボックスを無効にする
 - ホストキーは `known_hosts`（システムの既定ファイル）で検証する。未登録のホストには接続しない
+- SFTPの処理（接続、一覧、転送）は子プロセスで行う。配布exeでは同じexeを `ORE_FILER_SFTP_WORKER=1` 付きで起動する。Qt（GUI）と paramiko を同じプロセスで動かすと、凍結exeでクラッシュ（SIGABRT）が起きたため
 
 接続すると、アクティブペインに接続先のフォルダを表示する。接続先のフォルダは通常のペインと同じように移動できる。
 
