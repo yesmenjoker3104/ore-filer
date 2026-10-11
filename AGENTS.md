@@ -28,7 +28,7 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 - `ore_filer/gui/`: PySide6の画面、ペイン、キー操作、ダイアログ
 - `ore_filer/services/`: GUI・CLI・プラグインで共有するファイル操作
 - `ore_filer/services/git_service.py`: DulwichによるGit状態確認、ローカル操作、Fetch/Push
-- `ore_filer/services/remote_service.py`: paramikoによるSFTP接続、ブラウズ、アップロード・ダウンロード（ホストキーはknown_hostsで検証）
+- `ore_filer/services/remote_service.py`: paramikoによるSFTP接続、ブラウズ、アップロード・ダウンロード（ホストキーはknown_hostsで検証。paramikoは4系で凍結exeのknown_hosts照合がアクセス違反を起こしたため3.x系に固定）
 - `ore_filer/credentials.py`: keyringによるパスワード保存（Windows資格情報マネージャー、サービス名`ore-filer/sftp`）
 - `ore_filer/gui/remote_dialog.py`: SFTP接続ダイアログ（`Ctrl+Shift+S`）。プロファイル保存（パスワードは含めない）
 - `ore_filer/services/app_launcher.py`: 外部CLI `app-launcher` の呼び出し。JSON応答を読み、失敗時は例外にする
