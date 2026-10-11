@@ -43,9 +43,9 @@ class RemoteSession:
     def __init__(self, profile: RemoteProfile, password: str | None = None) -> None:
         self.profile = profile
         self._client = paramiko.SSHClient()
-        self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
         try:
+            self._client.load_system_host_keys()
             self._client.connect(
                 hostname=profile.host,
                 port=profile.port,

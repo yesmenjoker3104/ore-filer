@@ -12,7 +12,7 @@ from ore_filer.services.file_operations import (
     create_archive,
     extract_archive,
 )
-from ore_filer.services.remote_service import RemoteError, RemoteProfile, RemoteSession
+from ore_filer.services.remote_service import RemoteProfile, RemoteSession
 from ore_filer.services.search_service import find_paths, grep_files
 
 
@@ -283,14 +283,14 @@ class RemoteConnectThread(QThread):
     def run(self) -> None:
         try:
             session = RemoteSession(self._profile, password=self._password)
-        except RemoteError as error:
-            self.failed.emit(str(error))
+        except Exception as error:  # noqa: BLE001
+            self.failed.emit(str(error) or type(error).__name__)
             return
         try:
             start = self._profile.initial_path or session.home_dir()
-        except RemoteError as error:
+        except Exception as error:  # noqa: BLE001
             session.close()
-            self.failed.emit(str(error))
+            self.failed.emit(str(error) or type(error).__name__)
             return
         self.succeeded.emit(session, start)
 
@@ -316,7 +316,7 @@ class RemoteListThread(QThread):
     def run(self) -> None:
         try:
             entries = self._session.list_dir(self._path)
-        except RemoteError as error:
-            self.failed.emit(self._request_id, str(error))
+        except Exception as error:  # noqa: BLE001
+            self.failed.emit(self._request_id, str(error) or type(error).__name__)
             return
         self.listed.emit(self._request_id, self._path, entries)

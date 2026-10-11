@@ -1,14 +1,28 @@
 import sys
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from ore_filer.gui.main_window import MainWindow
-from ore_filer.settings import load_session
+from ore_filer.settings import load_session, session_file
 from ore_filer.updater import cleanup_old_exe
 
 WINDOWS_APP_USER_MODEL_ID = "OreFiler.FileManager"
+
+
+def _log_unhandled_exception(exc_type, exc, tb) -> None:
+    # windowed exe では stderr が無く、未処理例外が見えないまま終了するためファイルに残す
+    text = "".join(traceback.format_exception(exc_type, exc, tb))
+    try:
+        log = session_file().with_name("error.log")
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as file:
+            file.write(f"[{datetime.now().isoformat(timespec='seconds')}]\n{text}\n")
+    except OSError:
+        pass
 
 
 def _set_windows_app_user_model_id() -> None:
@@ -31,6 +45,7 @@ def _session_start_path(history: list[str]) -> Path:
 
 
 def main() -> int:
+    sys.excepthook = _log_unhandled_exception
     cleanup_old_exe()
     _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
