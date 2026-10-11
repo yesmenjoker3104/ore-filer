@@ -11,7 +11,7 @@ def test_connect_thread_reports_unexpected_exception_as_failed(monkeypatch) -> N
     def boom(*_args, **_kwargs):
         raise ValueError("unexpected")
 
-    monkeypatch.setattr(threads, "RemoteSession", boom)
+    monkeypatch.setattr(threads, "RemoteSessionProcess", boom)
     thread = RemoteConnectThread(_profile(), None)
     failures: list[str] = []
     successes: list[object] = []
@@ -28,7 +28,7 @@ def test_connect_thread_reports_remote_error_as_failed(monkeypatch) -> None:
     def refuse(*_args, **_kwargs):
         raise RemoteError("refused")
 
-    monkeypatch.setattr(threads, "RemoteSession", refuse)
+    monkeypatch.setattr(threads, "RemoteSessionProcess", refuse)
     thread = RemoteConnectThread(_profile(), None)
     failures: list[str] = []
     thread.failed.connect(failures.append)
@@ -48,7 +48,7 @@ def test_connect_thread_closes_session_when_home_dir_fails(monkeypatch) -> None:
         def close(self) -> None:
             closed.append(True)
 
-    monkeypatch.setattr(threads, "RemoteSession", lambda *a, **k: FakeSession())
+    monkeypatch.setattr(threads, "RemoteSessionProcess", lambda *a, **k: FakeSession())
     thread = RemoteConnectThread(RemoteProfile(name="t", host="h", username="u", initial_path=""), None)
     failures: list[str] = []
     thread.failed.connect(failures.append)

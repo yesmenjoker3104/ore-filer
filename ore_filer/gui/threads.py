@@ -12,6 +12,7 @@ from ore_filer.services.file_operations import (
     create_archive,
     extract_archive,
 )
+from ore_filer.services.remote_process import RemoteSessionProcess
 from ore_filer.services.remote_service import RemoteProfile, RemoteSession
 from ore_filer.services.search_service import find_paths, grep_files
 
@@ -281,18 +282,11 @@ class RemoteConnectThread(QThread):
         self._password = password
 
     def run(self) -> None:
-        import gc
-        # paramiko の SSH 接続・ホストキー照合中に OpenSSL がGILを解放する瞬間、
-        # メインスレッドの cyclic GC が cffi 管理下のネイティブオブジェクトを
-        # 回収して SIGABRT になる可能性がある。接続が確立するまで GC を止める。
-        gc.disable()
         try:
-            session = RemoteSession(self._profile, password=self._password)
+            session = RemoteSessionProcess(self._profile, password=self._password)
         except Exception as error:  # noqa: BLE001
             self.failed.emit(str(error) or type(error).__name__)
             return
-        finally:
-            gc.enable()
         try:
             start = self._profile.initial_path or session.home_dir()
         except Exception as error:  # noqa: BLE001
