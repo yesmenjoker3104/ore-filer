@@ -220,8 +220,8 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版を作
 - `main`ブランチへのpushで自動実行
 - Actions画面の`Run workflow`から手動実行も可能
 - `v*`タグのpushでGitHub Releaseを作成し、次の2つを添付する
-  - `ore-filer.exe`: 自動更新（`updater.py`）が取得する本体
-  - `ore-filer-Windows.zip`: `ore-filer.exe`と`app-launcher\app-launcher.exe`を含む一式
+  - `ore-filer.exe`: 単体の本体
+  - `ore-filer-Windows.zip`: `ore-filer.exe`と`app-launcher\app-launcher.exe`を含む一式（自動更新が取得するのはこちら）
 - 開発時のArtifactは`ore-filer-windows`（同じ2ファイル）
 - ワークフローは`yesmenjoker3104/app-launcher`をチェックアウトし、`build.ps1`で`app-launcher.exe`をビルドして同梱する
 
@@ -232,8 +232,9 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版を作
 - **確認先**: GitHub Releases API `/releases/latest` を HTTPS で取得
 - **確認タイミング**: 起動時にバックグラウンドで確認（1日1回）。`Ctrl+Shift+U` で手動確認も可
 - **バージョン比較**: タグ文字列を `(major, minor, patch)` タプルに変換して比較
+- **取得対象**: `ore-filer-Windows.zip` を優先。無い場合のみ `ore-filer.exe` を使う。zipから `ore-filer.exe` と `app-launcher\app-launcher.exe` を取り出す
 - **UI**: 新バージョン検出時に確認ダイアログを表示し、ユーザーの承認後にダウンロード・上書きインストール
-- **インストール**: 実行中の exe をリネーム（`.old`）して新 exe をコピー。起動時に `.old` を自動削除
+- **インストール**: 実行中の exe をリネーム（`.old`）して新しいものをコピー。`ore-filer.exe` と同じフォルダの `app-launcher\app-launcher.exe` も置き換える（フォルダが無ければ作成）。起動時に `.old` を自動削除
 - **失敗時**: ネットワーク障害・キャンセルはアプリ起動を妨げない
 
 ## キー一覧
@@ -470,7 +471,7 @@ quit = "Q"
 
 設定と保存先:
 
-- `app-launcher.exe`は、`%APPDATA%\ore-filer\config.json`の`app_launcher_path`（絶対パス）を優先する。未指定の場合は、ore-filerと同じフォルダの`app-launcher\app-launcher.exe`を使う。配布zipにはこのフォルダが含まれる（自動更新で取得する`ore-filer.exe`単体には含まれない）
+- `app-launcher.exe`は、`%APPDATA%\ore-filer\config.json`の`app_launcher_path`（絶対パス）を優先する。未指定の場合は、ore-filerと同じフォルダの`app-launcher\app-launcher.exe`を使う。配布zipにはこのフォルダが含まれ、自動更新でも同じ場所の`app-launcher.exe`が新しくなる
 - 登録データは`%LOCALAPPDATA%\app-launcher\apps.json`に保存され、`app-launcher`が管理する
 
 ## CLI

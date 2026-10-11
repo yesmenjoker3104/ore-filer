@@ -2231,11 +2231,11 @@ class MainWindow(QMainWindow):
 		)
 		self._update_download_thread.start()
 
-	def _on_download_finished(self, path: str) -> None:
+	def _on_download_finished(self, path: str, launcher_path: str) -> None:
 		import sys
 
 		if getattr(sys, "frozen", False):
-			install_update(path)
+			install_update(path, launcher_path)
 			QMessageBox.information(
 				self,
 				"アップデート完了",
