@@ -1,8 +1,12 @@
-import multiprocessing
+import os
+import sys
 
-# PyInstaller + multiprocessing.get_context("spawn") の組み合わせで必要。
-# 子プロセス起動時に同じ exe が再実行されるため、GUI 初期化より先に呼ぶ必要がある。
-multiprocessing.freeze_support()
+# SFTPワーカーモード: RemoteSessionProcess が ORE_FILER_SFTP_WORKER=1 で起動する子プロセス。
+# Qt を一切ロードせず JSON IPC ループだけ実行して終了する。
+if os.environ.get("ORE_FILER_SFTP_WORKER") == "1":
+    from ore_filer.services.remote_process import _worker_main
+    _worker_main()
+    sys.exit(0)
 
 from ore_filer.app import main
 

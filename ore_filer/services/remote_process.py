@@ -1,63 +1,83 @@
 """paramiko を子プロセスで動かす SFTP セッションアダプタ。
 
-同一プロセスで Qt と paramiko の Transport スレッドを共存させると
-OpenSSL が SIGABRT するため、SFTP 処理全体を spawn した子プロセスに分離する。
-子プロセスは Qt を一切インポートせず、IPC（multiprocessing.Queue）でのみ通信する。
+multiprocessing.spawn は PyInstaller frozen exe で誤動作するため、
+subprocess.Popen + 環境変数 + stdin/stdout JSON IPC で代替する。
+
+起動フロー:
+  親プロセス(GUI)が ORE_FILER_SFTP_WORKER=1 の環境変数付きで同じ exe を起動
+  → __main__.py が env を見て _worker_main() を呼んで GUI は起動しない
+  → 親子間は改行区切り JSON でコマンド/応答を交換する
 """
 from __future__ import annotations
 
-import multiprocessing
+import json
+import os
 import posixpath
 import queue
 import stat as stat_module
+import subprocess
+import sys
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
 from ore_filer.services.remote_service import RemoteEntry, RemoteError, RemoteProfile
 
+WORKER_ENV = "ORE_FILER_SFTP_WORKER"
+
 
 # ── 子プロセス側 ──────────────────────────────────────────────
 
 
-def _worker(
-    req_queue: multiprocessing.Queue,
-    resp_queue: multiprocessing.Queue,
-) -> None:
-    """子プロセスのメインループ。SSH セッションを保持し IPC 命令を処理する。"""
+def _send(stream, obj: dict) -> None:
+    stream.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+    stream.flush()
+
+
+def _worker_main(stdin=None, stdout=None) -> None:
+    """子プロセスのメインループ。stdin から JSON 命令を受け取り stdout に応答する。"""
     from ore_filer.services.remote_service import RemoteSession
 
-    session: RemoteSession | None = None
+    if stdin is None:
+        stdin = sys.stdin.buffer
+    if stdout is None:
+        stdout = sys.stdout.buffer
+
+    session = None
 
     while True:
-        try:
-            req = req_queue.get(timeout=600)
-        except Exception:
+        line = stdin.readline()
+        if not line:
             break
+        try:
+            req = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
         cmd = req.get("cmd")
         try:
             if cmd == "connect":
                 profile = RemoteProfile(**req["profile"])
                 session = RemoteSession(profile, password=req.get("password"))
-                resp_queue.put({"ok": True})
+                _send(stdout, {"ok": True})
 
             elif session is None:
-                resp_queue.put({"ok": False, "error": "未接続です"})
+                _send(stdout, {"ok": False, "error": "未接続です"})
 
             elif cmd == "home_dir":
-                resp_queue.put({"ok": True, "data": session.home_dir()})
+                _send(stdout, {"ok": True, "data": session.home_dir()})
 
             elif cmd == "list_dir":
                 entries = session.list_dir(req["path"])
-                resp_queue.put({"ok": True, "data": [asdict(e) for e in entries]})
+                _send(stdout, {"ok": True, "data": [asdict(e) for e in entries]})
 
             elif cmd == "download":
                 session.download(req["remote"], Path(req["local"]))
-                resp_queue.put({"ok": True})
+                _send(stdout, {"ok": True})
 
             elif cmd == "upload":
                 session.upload(Path(req["local"]), req["remote"])
-                resp_queue.put({"ok": True})
+                _send(stdout, {"ok": True})
 
             elif cmd == "mkdir_remote":
                 remote_path = req["path"]
@@ -76,18 +96,25 @@ def _worker(
                         raise RemoteError(
                             f"フォルダを作成できませんでした: {remote_path} ({e})"
                         ) from e
-                resp_queue.put({"ok": True})
+                _send(stdout, {"ok": True})
 
             elif cmd == "close":
-                session.close()
-                resp_queue.put({"ok": True})
+                if session:
+                    session.close()
+                _send(stdout, {"ok": True})
                 break
 
             else:
-                resp_queue.put({"ok": False, "error": f"不明なコマンド: {cmd}"})
+                _send(stdout, {"ok": False, "error": f"不明なコマンド: {cmd}"})
 
         except Exception as e:  # noqa: BLE001
-            resp_queue.put({"ok": False, "error": str(e) or type(e).__name__})
+            _send(stdout, {"ok": False, "error": str(e) or type(e).__name__})
+
+    if session:
+        try:
+            session.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ── メインプロセス側 ──────────────────────────────────────────
@@ -96,20 +123,34 @@ def _worker(
 class RemoteSessionProcess:
     """RemoteSession と同じインタフェースを持つ子プロセス版セッション。
 
-    子プロセスで paramiko を動かし、Qt と Transport スレッドを同一プロセスから
+    subprocess.Popen + stdin/stdout JSON IPC で paramiko を同一プロセスから
     分離することで SIGABRT を回避する。
     """
 
     def __init__(self, profile: RemoteProfile, password: str | None = None) -> None:
-        ctx = multiprocessing.get_context("spawn")
-        self._req_q: multiprocessing.Queue = ctx.Queue()
-        self._resp_q: multiprocessing.Queue = ctx.Queue()
-        self._proc = ctx.Process(
-            target=_worker,
-            args=(self._req_q, self._resp_q),
-            daemon=True,
+        env = os.environ.copy()
+        env[WORKER_ENV] = "1"
+
+        # frozen exe はそのまま起動、開発時は -m ore_filer で __main__.py を通す
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable]
+        else:
+            cmd = [sys.executable, "-m", "ore_filer"]
+
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
         )
-        self._proc.start()
+        self._resp_q: queue.Queue = queue.Queue()
+        self._reader_thread = threading.Thread(
+            target=self._read_loop,
+            daemon=True,
+            name="sftp-reader",
+        )
+        self._reader_thread.start()
         self.profile = profile
 
         try:
@@ -118,29 +159,53 @@ class RemoteSessionProcess:
                 timeout=35,
             )
         except Exception:
-            self._proc.terminate()
-            self._proc.join(timeout=3)
+            self._kill()
             raise
         if not resp.get("ok"):
-            self._proc.terminate()
-            self._proc.join(timeout=3)
+            self._kill()
             raise RemoteError(resp.get("error", "接続に失敗しました"))
 
     # ── IPC ────────────────────────────────────────────────────
 
+    def _read_loop(self) -> None:
+        while True:
+            try:
+                line = self._proc.stdout.readline()
+            except Exception:  # noqa: BLE001
+                break
+            if not line:
+                self._resp_q.put(None)  # EOF = プロセス終了
+                break
+            try:
+                self._resp_q.put(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
     def _call(self, req: dict, timeout: float = 30.0) -> dict:
-        if not self._proc.is_alive():
-            raise RemoteError("リモートプロセスが応答していません")
-        self._req_q.put(req)
+        if self._proc.poll() is not None:
+            raise RemoteError("リモートプロセスが終了しています")
+        line = (json.dumps(req, ensure_ascii=False) + "\n").encode()
+        self._proc.stdin.write(line)
+        self._proc.stdin.flush()
         try:
-            return self._resp_q.get(timeout=timeout)
-        except queue.Empty as e:
-            raise RemoteError("タイムアウトしました") from e
+            resp = self._resp_q.get(timeout=timeout)
+        except queue.Empty:
+            raise RemoteError("タイムアウトしました")
+        if resp is None:
+            raise RemoteError("プロセスが予期せず終了しました")
+        return resp
 
     def _require(self, resp: dict) -> dict:
         if not resp.get("ok"):
             raise RemoteError(resp.get("error", "不明なエラー"))
         return resp
+
+    def _kill(self) -> None:
+        try:
+            self._proc.kill()
+            self._proc.wait(timeout=3)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ── RemoteSession 互換インタフェース ────────────────────────
 
@@ -211,11 +276,11 @@ class RemoteSessionProcess:
 
     def close(self) -> None:
         try:
-            self._req_q.put({"cmd": "close"})
+            line = (json.dumps({"cmd": "close"}, ensure_ascii=False) + "\n").encode()
+            self._proc.stdin.write(line)
+            self._proc.stdin.flush()
             self._resp_q.get(timeout=5)
         except Exception:  # noqa: BLE001
             pass
         finally:
-            if self._proc.is_alive():
-                self._proc.terminate()
-            self._proc.join(timeout=3)
+            self._kill()
