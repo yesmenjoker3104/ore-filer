@@ -90,4 +90,10 @@ def main() -> int:
     return app.exec()
 
 if __name__ == "__main__":
+    # 配布exeはこのファイルが起動スクリプトなので、SFTPワーカーの分岐もここで行う
+    from ore_filer.services.remote_process import WORKER_ENV, _worker_main
+
+    if os.environ.get(WORKER_ENV) == "1":
+        _worker_main()
+        raise SystemExit(0)
     raise SystemExit(main())

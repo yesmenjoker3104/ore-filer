@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 import json
 import queue
-import threading
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,7 +16,6 @@ import pytest
 
 from ore_filer.services.remote_process import (
     RemoteSessionProcess,
-    _send,
     _worker_main,
 )
 from ore_filer.services.remote_service import RemoteEntry, RemoteError, RemoteProfile

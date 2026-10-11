@@ -10,6 +10,7 @@ subprocess.Popen + 環境変数 + stdin/stdout JSON IPC で代替する。
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import posixpath
@@ -111,10 +112,8 @@ def _worker_main(stdin=None, stdout=None) -> None:
             _send(stdout, {"ok": False, "error": str(e) or type(e).__name__})
 
     if session:
-        try:
+        with contextlib.suppress(Exception):
             session.close()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 # ── メインプロセス側 ──────────────────────────────────────────
@@ -201,11 +200,9 @@ class RemoteSessionProcess:
         return resp
 
     def _kill(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._proc.kill()
             self._proc.wait(timeout=3)
-        except Exception:  # noqa: BLE001
-            pass
 
     # ── RemoteSession 互換インタフェース ────────────────────────
 
@@ -276,11 +273,10 @@ class RemoteSessionProcess:
 
     def close(self) -> None:
         try:
-            line = (json.dumps({"cmd": "close"}, ensure_ascii=False) + "\n").encode()
-            self._proc.stdin.write(line)
-            self._proc.stdin.flush()
-            self._resp_q.get(timeout=5)
-        except Exception:  # noqa: BLE001
-            pass
+            with contextlib.suppress(Exception):
+                line = (json.dumps({"cmd": "close"}, ensure_ascii=False) + "\n").encode()
+                self._proc.stdin.write(line)
+                self._proc.stdin.flush()
+                self._resp_q.get(timeout=5)
         finally:
             self._kill()
