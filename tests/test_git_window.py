@@ -6,10 +6,9 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from dulwich import porcelain
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog
-
-from dulwich import porcelain
 
 from ore_filer.gui.git_window import GitWindow, _classify
 from ore_filer.services import git_service
@@ -303,8 +302,8 @@ class GitWindowTests(unittest.TestCase):
                 self.app.processEvents()
                 self.assertTrue(win.isVisible())
 
-                from PySide6.QtGui import QKeyEvent
                 from PySide6.QtCore import QEvent
+                from PySide6.QtGui import QKeyEvent
                 event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
                 win.keyPressEvent(event)
                 self.app.processEvents()

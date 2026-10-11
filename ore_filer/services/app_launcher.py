@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from ..settings import load_config
 
@@ -64,6 +64,7 @@ def _run_cli(exe: Path, args: list[str]) -> dict:
             text=True,
             creationflags=creationflags,
             timeout=_TIMEOUT_SECONDS,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         raise AppLauncherError(f"app-launcherを実行できませんでした: {e}") from e

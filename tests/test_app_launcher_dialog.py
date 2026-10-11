@@ -26,6 +26,7 @@ from ore_filer.services.app_launcher import (
 EXE = find_app_launcher()
 NOTEPAD = Path(r"C:\Windows\System32\notepad.exe")
 CALC = Path(r"C:\Windows\System32\calc.exe")
+PAINT = Path(r"C:\Windows\System32\mspaint.exe")
 
 
 @unittest.skipIf(EXE is None, "app-launcher.exe が見つかりません")
@@ -100,36 +101,73 @@ class AppLauncherDialogTests(unittest.TestCase):
         self.assertEqual(dialog._list.currentRow(), 1)
         dialog.close()
 
-    def test_typing_moves_to_matching_app_case_insensitively(self) -> None:
+    def test_typing_filters_list_to_matching_apps_case_insensitively(self) -> None:
         register_application(EXE, NOTEPAD, "Memo Pad")
         register_application(EXE, CALC, "Calculator")
         dialog = AppLauncherDialog(EXE, None)
         dialog._list.setFocus()
         QTest.keyClicks(dialog._list, "CALC")
+        self.assertEqual(self._listed_names(dialog), ["Calculator"])
         self.assertEqual(dialog._list.currentItem().data(Qt.ItemDataRole.UserRole).name, "Calculator")
         self.assertEqual(dialog._hint_label.text(), "フィルタ: CALC")
 
-    def test_backspace_shrinks_search_and_escape_clears_it(self) -> None:
+    def test_backspace_widens_filter_and_escape_clears_it(self) -> None:
         register_application(EXE, NOTEPAD, "Memo Pad")
         register_application(EXE, CALC, "Calculator")
         dialog = AppLauncherDialog(EXE, None)
         dialog._list.setFocus()
         QTest.keyClicks(dialog._list, "calc")
+        self.assertIn("Calculator", self._listed_names(dialog))
+        self.assertNotIn("Memo Pad", self._listed_names(dialog))
         QTest.keyClick(dialog._list, Qt.Key.Key_Backspace)
         self.assertEqual(dialog._hint_label.text(), "フィルタ: cal")
+        self.assertIn("Calculator", self._listed_names(dialog))
+        self.assertNotIn("Memo Pad", self._listed_names(dialog))
         QTest.keyClick(dialog._list, Qt.Key.Key_Escape)
-        self.assertEqual(dialog._list._search, "")
+        self.assertEqual(dialog._list.query(), "")
         self.assertEqual(dialog._hint_label.text(), "Enter: 起動 / →: アプリ設定 / 文字入力: インクリメンタルフィルタ")
+        self.assertIn("Memo Pad", self._listed_names(dialog))
         dialog.close()
 
-    def test_search_resets_after_idle_timeout(self) -> None:
+    def test_filter_persists_without_idle_timeout(self) -> None:
         register_application(EXE, NOTEPAD, "Memo Pad")
+        register_application(EXE, CALC, "Calculator")
         dialog = AppLauncherDialog(EXE, None)
         dialog._list.setFocus()
         QTest.keyClicks(dialog._list, "memo")
-        dialog._list._reset_timer.timeout.emit()
-        self.assertEqual(dialog._list._search, "")
-        self.assertEqual(dialog._hint_label.text(), "Enter: 起動 / →: アプリ設定 / 文字入力: インクリメンタルフィルタ")
+        self.assertEqual(self._listed_names(dialog), ["Memo Pad"])
+        self.assertEqual(dialog._list.query(), "memo")
+        dialog.close()
+
+    def test_filter_with_no_match_shows_empty_list(self) -> None:
+        register_application(EXE, NOTEPAD, "Memo Pad")
+        dialog = AppLauncherDialog(EXE, None)
+        dialog._list.setFocus()
+        QTest.keyClicks(dialog._list, "zzz")
+        self.assertEqual(self._listed_names(dialog), [])
+        self.assertIsNone(dialog._list.currentItem())
+        dialog.close()
+
+    def test_reload_keeps_selection_and_clears_filter(self) -> None:
+        register_application(EXE, NOTEPAD, "Memo Pad")
+        register_application(EXE, CALC, "Calculator")
+        register_application(EXE, PAINT, "Paint Calc")
+        dialog = AppLauncherDialog(EXE, None)
+        dialog._list.setFocus()
+        QTest.keyClicks(dialog._list, "calc")
+        names = self._listed_names(dialog)
+        self.assertIn("Calculator", names)
+        self.assertIn("Paint Calc", names)
+        self.assertNotIn("Memo Pad", names)
+        dialog._list.setCurrentRow(names.index("Paint Calc"))
+        dialog._reload()
+        self.assertEqual(dialog._list.query(), "")
+        self.assertEqual(dialog._list.currentItem().data(Qt.ItemDataRole.UserRole).name, "Paint Calc")
+        self.assertIn("Memo Pad", self._listed_names(dialog))
+        dialog.close()
+
+    def _listed_names(self, dialog: AppLauncherDialog) -> list[str]:
+        return [dialog._list.item(i).data(Qt.ItemDataRole.UserRole).name for i in range(dialog._list.count())]
 
     def test_settings_lists_only_folder_sources(self) -> None:
         folder = Path(self._tmp) / "apps"

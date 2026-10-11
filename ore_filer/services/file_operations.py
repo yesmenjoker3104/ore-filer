@@ -1,18 +1,16 @@
 import difflib
 import os
-import re
-import shlex
+import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 import uuid
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
-import stat
-import tarfile
 from tempfile import TemporaryDirectory
-import zipfile
 
 
 class ArchiveFormatError(ValueError):
@@ -33,9 +31,9 @@ class ArchiveEntry:
 
 def _archive_format(path: Path) -> str:
     name = path.name.casefold()
-    if name.endswith(".tar.gz") or name.endswith(".tgz"):
+    if name.endswith((".tar.gz", ".tgz")):
         return "tar.gz"
-    if name.endswith(".tar.bz2") or name.endswith(".tbz2"):
+    if name.endswith((".tar.bz2", ".tbz2")):
         return "tar.bz2"
     if name.endswith(".tar"):
         return "tar"
@@ -376,11 +374,10 @@ def _archive_members(source: Path):
         return
 
     yield source
-    for child in sorted(
+    yield from sorted(
         source.rglob("*"),
         key=lambda path: str(path).casefold(),
-    ):
-        yield child
+    )
 
 
 def _archive_name(source: Path, base_path: Path) -> str:

@@ -3,8 +3,8 @@ import os
 import shutil
 import sys
 import tempfile
-import urllib.request
 import urllib.error
+import urllib.request
 import zipfile
 
 from PySide6.QtCore import QThread, Signal
@@ -62,7 +62,7 @@ class UpdateCheckThread(QThread):
                 self.up_to_date.emit()
             else:
                 self.check_failed.emit()
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.check_failed.emit()
 
 
@@ -97,7 +97,7 @@ class UpdateDownloadThread(QThread):
             else:
                 new_exe, new_launcher = dest, ""
             self.download_finished.emit(new_exe, new_launcher)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.download_failed.emit(str(e))
 
 
@@ -163,5 +163,5 @@ def cleanup_old_exe() -> None:
         if os.path.exists(old_path):
             try:
                 os.unlink(old_path)
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass

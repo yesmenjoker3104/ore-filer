@@ -28,6 +28,9 @@ Windows向けのキーボード操作中心の2画面ファイラー。cfilerの
 - `ore_filer/gui/`: PySide6の画面、ペイン、キー操作、ダイアログ
 - `ore_filer/services/`: GUI・CLI・プラグインで共有するファイル操作
 - `ore_filer/services/git_service.py`: DulwichによるGit状態確認、ローカル操作、Fetch/Push
+- `ore_filer/services/remote_service.py`: paramikoによるSFTP接続、ブラウズ、アップロード・ダウンロード（ホストキーはknown_hostsで検証）
+- `ore_filer/credentials.py`: keyringによるパスワード保存（Windows資格情報マネージャー、サービス名`ore-filer/sftp`）
+- `ore_filer/gui/remote_dialog.py`: SFTP接続ダイアログ（`Ctrl+Shift+S`）。プロファイル保存（パスワードは含めない）
 - `ore_filer/services/app_launcher.py`: 外部CLI `app-launcher` の呼び出し。JSON応答を読み、失敗時は例外にする
 - `ore_filer/gui/app_launcher_dialog.py`: 登録アプリの一覧（`L`）とアプリ設定のダイアログ。登録データは`app-launcher`側で管理する
 - `ore_filer/api/`: Pythonプラグイン向け公開API
@@ -56,10 +59,23 @@ $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -c "from PySide6.QtWidgets import QApplication; from ore_filer.gui.main_window import MainWindow; app=QApplication([]); MainWindow('.', '.'); print('SUCCESS')"
 ```
 
+lintは`ruff`（`dev`依存）を使う。プロジェクト全体がlintを通るので、`ore_filer`と`tests`の全体を対象にする。`ruff format`はタブでインデントされたファイル（`settings.py`、`main_window*.py`など）の書式を崩すため使わない。
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check ore_filer tests
+```
+
 Pythonソースの構文確認:
 
 ```powershell
 .\.venv\Scripts\python.exe -m compileall ore_filer
+```
+
+テスト（SFTPの結合テストは`ORE_FILER_TEST_SFTP_HOST` / `_PORT` / `_USER` / `_PASSWORD`を設定したときだけ実行される）:
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+.\.venv\Scripts\python.exe -m pytest
 ```
 
 編集後は、変更した範囲に近い検証を優先し、少なくとも構文確認を実行する。PySide6のGUI変更時は`MainWindow`生成確認も行う。

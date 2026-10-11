@@ -11,7 +11,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
-
 # ── キー名 → Qt.Key の対応表 ──────────────────────────────
 
 
@@ -122,6 +121,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "toggle_hidden":    "隠しファイル表示を切り替える",
     "diff":             "左右ペインのファイルを差分表示",
     "git_menu":         "Git メニュー",
+    "remote_connect":   "リモート（SFTP）に接続／接続中なら切断",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -178,6 +178,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "font_smaller":     "Minus",
     "keymap_help":      "Question",
     "update_check":     "Ctrl+Shift+U",
+    "remote_connect":   "Ctrl+Shift+S",
     "quit":             "Q",
     "expand_tree":      "T",
     "refresh":          "F5",
@@ -248,7 +249,7 @@ class KeyMap:
                     for action, spec in user_keys.items():
                         if isinstance(spec, str):
                             raw[action] = spec
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 pass  # 読み込み失敗はデフォルトにフォールバック
 
         # パースして登録

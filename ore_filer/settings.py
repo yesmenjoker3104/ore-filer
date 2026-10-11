@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-
 MAX_HISTORY = 200
 
 
@@ -130,3 +129,33 @@ def save_bookmarks(bookmarks: list[str]) -> None:
 	with tmp.open("w", encoding="utf-8") as f:
 		json.dump(bookmarks, f, ensure_ascii=False, indent=2)
 	tmp.replace(path)
+
+
+def _remote_profile_file() -> Path:
+		appdata = os.environ.get("APPDATA")
+		base = Path(appdata) if appdata else Path.home() / ".config"
+		return base / "ore-filer" / "remote_profiles.json"
+
+
+def load_remote_profiles() -> list[dict]:
+		try:
+			with _remote_profile_file().open("r", encoding="utf-8") as f:
+				data = json.load(f)
+			if isinstance(data, list):
+				return [
+					{"port": 22, "key_filename": None, "initial_path": "", "save_password": False, **item}
+					for item in data
+					if isinstance(item, dict) and item.get("name") and item.get("host") and item.get("username")
+				]
+		except (OSError, ValueError, TypeError):
+			pass
+		return []
+
+
+def save_remote_profiles(profiles: list[dict]) -> None:
+		path = _remote_profile_file()
+		path.parent.mkdir(parents=True, exist_ok=True)
+		tmp = path.with_suffix(".tmp")
+		with tmp.open("w", encoding="utf-8") as f:
+			json.dump(profiles, f, ensure_ascii=False, indent=2)
+		tmp.replace(path)

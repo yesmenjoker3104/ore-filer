@@ -93,4 +93,5 @@ git_menu        = "G"               # Git メニュー（ステージ/コミッ�
 # ── システム ───────────────────────────────────────────────
 keymap_help     = "Question"        # キー一覧を表示
 update_check    = "Ctrl+Shift+U"    # バージョン情報 / アップデートを確認
+remote_connect  = "Ctrl+Shift+S"    # リモート（SFTP）に接続／接続中なら切断
 quit            = "Q"               # アプリを終了

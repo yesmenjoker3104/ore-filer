@@ -20,12 +20,12 @@ from PySide6.QtWidgets import (
 
 from ore_filer.gui.dialogs import (
     DiffDialog,
-    GitCommandThread,
     GitCommitDialog,
     GitHttpCredentialsDialog,
     GitLogDialog,
     SideBySideDiffDialog,
 )
+from ore_filer.gui.threads import GitCommandThread
 from ore_filer.services import git_service
 
 _STATUS_COLORS: dict[str, str] = {
@@ -203,7 +203,7 @@ class GitWindow(QDialog):
         try:
             branch = git_service.current_branch(self._repo)
             status_map = git_service.status(self._repo)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self._set_status(f"ステータス取得失敗: {e}")
             return
 
@@ -240,7 +240,7 @@ class GitWindow(QDialog):
             return
         try:
             git_service.stage(self._repo, paths)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Git ステージ", str(e))
             return
         self._refresh()
@@ -254,7 +254,7 @@ class GitWindow(QDialog):
             return
         try:
             git_service.unstage(self._repo, paths)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Git ステージ解除", str(e))
             return
         self._refresh()
@@ -264,7 +264,7 @@ class GitWindow(QDialog):
     def _commit(self) -> None:
         try:
             raw_map = git_service.status(self._repo)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Git コミット", str(e))
             return
 
@@ -371,7 +371,7 @@ class GitWindow(QDialog):
         try:
             head_text = git_service.head_file_text(self._repo, path)
             work_text = path.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Git 差分", str(e))
             return
         SideBySideDiffDialog("HEAD", path.name, head_text, work_text, self).exec()
@@ -379,7 +379,7 @@ class GitWindow(QDialog):
     def _log(self) -> None:
         try:
             entries = git_service.log(self._repo)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "Git ログ", str(e))
             return
         if not entries:
@@ -393,13 +393,13 @@ class GitWindow(QDialog):
                 try:
                     diff_text = git_service.show(self._repo, commit_hash)
                     DiffDialog(commit_hash, "show", diff_text, self).exec()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     QMessageBox.warning(self, "git show", str(e))
 
     def _switch_branch(self) -> None:
         try:
             branch_list = git_service.branches(self._repo)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "ブランチ切替", str(e))
             return
         if not branch_list:
@@ -414,7 +414,7 @@ class GitWindow(QDialog):
             return
         try:
             git_service.switch(self._repo, selected)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "ブランチ切替", f"切り替えに失敗しました:\n{e}")
             return
         self._refresh()

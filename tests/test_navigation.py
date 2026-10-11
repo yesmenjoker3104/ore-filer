@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QAbstractItemView
+from PySide6.QtWidgets import QAbstractItemView, QApplication
 
 from ore_filer.gui.keymap import DEFAULT_BINDINGS, _parse_spec
 from ore_filer.gui.pane import PaneWidget

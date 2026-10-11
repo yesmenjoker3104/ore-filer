@@ -42,17 +42,24 @@ cfilerの操作感を参考にしつつ、実装は新規に行う。GUIにはPy
 ```text
 ore-filer/
 ├── README.md
+├── AGENTS.md / CLAUDE.md         # 開発者（AI含む）向けの指示
 ├── pyproject.toml
 ├── ore_filer/
 │   ├── app.py
-│   ├── settings.py
+│   ├── __main__.py
+│   ├── settings.py               # 設定・セッション・接続プロファイルの保存
+│   ├── credentials.py            # パスワードのWindows資格情報マネージャー保存
+│   ├── updater.py                # 自動更新
+│   ├── version.py
 │   ├── services/
 │   │   ├── file_service.py
 │   │   ├── directory_service.py
 │   │   ├── search_service.py
 │   │   ├── file_model.py
 │   │   ├── file_operations.py
-│   │   └── app_launcher.py
+│   │   ├── git_service.py
+│   │   ├── app_launcher.py
+│   │   └── remote_service.py     # SFTP接続・一覧・アップロード・ダウンロード
 │   ├── api/
 │   │   ├── app.py
 │   │   ├── command.py
@@ -60,8 +67,16 @@ ore-filer/
 │   │   └── filesystem.py
 │   ├── gui/
 │   │   ├── main_window.py
+│   │   ├── main_window_*.py      # MainWindow の機能別 Mixin
 │   │   ├── pane.py
-│   │   ├── dialogs.py
+│   │   ├── pane_views.py
+│   │   ├── pane_archive.py
+│   │   ├── pane_remote.py
+│   │   ├── threads.py
+│   │   ├── dialogs/              # ダイアログ（種類別に分割）
+│   │   ├── git_window.py
+│   │   ├── remote_dialog.py
+│   │   ├── context_menu.py
 │   │   ├── keymap.py
 │   │   ├── app_launcher_dialog.py
 │   │   └── commands.py
@@ -69,6 +84,7 @@ ore-filer/
 │       └── main.py
 ├── config/
 │   └── keymap.toml
+├── tests/                        # pytest
 └── plugins/
     └── sample_plugin/
         ├── plugin.py
@@ -82,7 +98,10 @@ ore-filer/
 | ファイル                  | 役割                                                                     |
 | ------------------------- | ------------------------------------------------------------------------ |
 | `ore_filer/app.py`      | アプリケーションの起動処理。`QApplication`とメインウィンドウを作成する |
-| `ore_filer/settings.py` | アプリケーション設定、ユーザー設定、設定ファイルの管理                   |
+| `ore_filer/settings.py` | アプリケーション設定、ユーザー設定、設定ファイルの管理。接続プロファイル（パスワードは含まない）の保存も担当 |
+| `ore_filer/credentials.py` | SFTPパスワードのWindows資格情報マネージャー（keyring）への保存・読み出し・削除 |
+| `ore_filer/updater.py` | GitHub Releasesからの自動更新確認とインストール |
+| `ore_filer/version.py` | アプリケーションのバージョン |
 
 ### `ore_filer/gui/`
 
@@ -91,8 +110,15 @@ ore-filer/
 | ファイル           | 役割                                                    |
 | ------------------ | ------------------------------------------------------- |
 | `main_window.py` | メインウィンドウ、左右ペイン、アクティブペインの管理    |
+| `main_window_*.py` | `MainWindow`の機能別Mixin（アーカイブ、ファイル操作、Git、リモート、ビューア、キー、更新） |
 | `pane.py`        | 1つのペイン、ファイル一覧、フォルダ移動、選択状態の管理 |
-| `dialogs.py`     | 確認、入力、エラー表示などのダイアログ                  |
+| `pane_views.py`  | ペインの表示部品（デリゲート、ツリービュー、フィルタ、ソート定数） |
+| `pane_archive.py` / `pane_remote.py` | ペインのアーカイブ表示、リモート（SFTP）表示 |
+| `threads.py`     | バックグラウンド処理用のQThread群                       |
+| `dialogs/`       | 確認、入力、ビューア、差分、Git、一括リネームなどのダイアログ（種類別に分割） |
+| `remote_dialog.py` | SFTP接続ダイアログ（接続先プロファイルの選択・保存・削除、パスワード保存） |
+| `git_window.py`  | Gitメニューと、ログ・コミット・ブランチ切替などのGitウィンドウ |
+| `context_menu.py` | Windowsのシェル右クリックメニューの表示 |
 | `keymap.py`      | キー入力とコマンドの対応、外部キー設定の読み込み        |
 | `commands.py`    | GUIから実行するコマンドの定義と処理の振り分け           |
 | `app_launcher_dialog.py` | 登録アプリの一覧（`L`）とアプリ設定のダイアログ    |
@@ -110,6 +136,7 @@ GUI、CLI、プラグインから共通利用するファイル操作の本体�
 | `file_operations.py`   | 時間のかかるファイル操作、進捗、キャンセルの共通処理 |
 | `git_service.py`       | DulwichによるGit状態、ローカル操作、Fetch/Push       |
 | `app_launcher.py`      | 外部CLI app-launcher の呼び出し（一覧、起動、登録元の管理） |
+| `remote_service.py`    | SFTP（paramiko）による接続、ディレクトリ一覧、アップロード、ダウンロード。パスワード認証と鍵認証に対応 |
 
 ### `ore_filer/api/`
 
@@ -212,6 +239,10 @@ Pythonプラグインや外部連携向けの安定した公開APIを担当す�
 - アーカイブ作成・展開
 - 一括リネーム
 - コマンドラインランチャー
+- SFTPによるリモート接続、ファイルのアップロード・ダウンロード（接続プロファイル、パスワードの資格情報マネージャー保存）
+- Gitの状態表示、ステージ、コミット、ログ、ブランチ切替、fetch・push・pull（Dulwich）
+- 外部キー設定（TOML）とキー一覧の表示
+- lint（ruff）とpytestによる自動テスト
 
 ## Windows版exeのビルド
 
@@ -224,6 +255,27 @@ GitHub Actionsの`Build Windows executable`ワークフローでWindows版を作
   - `ore-filer-Windows.zip`: `ore-filer.exe`と`app-launcher\app-launcher.exe`を含む一式（自動更新が取得するのはこちら）
 - 開発時のArtifactは`ore-filer-windows`（同じ2ファイル）
 - ワークフローは`yesmenjoker3104/app-launcher`をチェックアウトし、`build.ps1`で`app-launcher.exe`をビルドして同梱する
+
+## 開発とテスト
+
+依存関係は`.venv`に入れる。開発用の`ruff`は`dev`の任意依存として入る。
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m ruff check ore_filer tests
+.\.venv\Scripts\python.exe -m pytest
+```
+
+`ruff`の設定はリポジトリに置かず、既定のルールを使う。`ruff format`はタブでインデントされたファイルの書式を崩すため実行しない。
+
+SFTPの結合テストは、接続先のSSHサーバーを環境変数で指定したときだけ実行する（指定が無い場合は省略される）。
+
+```powershell
+$env:ORE_FILER_TEST_SFTP_HOST = "127.0.0.1"
+$env:ORE_FILER_TEST_SFTP_PORT = "2222"
+$env:ORE_FILER_TEST_SFTP_USER = "<ユーザー名>"
+$env:ORE_FILER_TEST_SFTP_PASSWORD = "<パスワード>"
+```
 
 ## 自動更新
 
@@ -364,6 +416,7 @@ Git メニューのアクセラレータ:
 | キー             | 操作                              |
 | ---------------- | --------------------------------- |
 | `?`            | キー一覧を表示                    |
+| `Ctrl+Shift+S` | リモート（SFTP）に接続／接続中なら切断 |
 | `Ctrl+Shift+U` | バージョン情報 / アップデート確認 |
 | `Q`            | アプリケーション終了              |
 
@@ -398,6 +451,31 @@ Git メニューのアクセラレータ:
 
 キー割り当ては後述のTOMLファイルから変更できる。
 
+## リモート接続（SFTP）
+
+`Ctrl+Shift+S` で接続ダイアログを開く。接続中にもう一度押すと切断する。
+
+接続ダイアログ:
+
+- ホスト、ポート、ユーザー名、初期フォルダを入力する。認証はパスワードまたは秘密鍵ファイルを使う。鍵を指定しない場合は ssh-agent と既定の鍵を試す
+- 接続時に接続先プロファイルを `%APPDATA%\ore-filer\remote_profiles.json` へ保存する。プロファイル欄で選び直せ、削除ボタンで消せる。プロファイルにはパスワードを含めない
+- 「パスワードを保存する」にチェックを入れると、パスワードをWindows資格情報マネージャーに保存する（サービス名 `ore-filer/sftp`）。資格情報マネージャーが使えない環境ではチェックボックスを無効にする
+- ホストキーは `known_hosts`（システムの既定ファイル）で検証する。未登録のホストには接続しない
+
+接続すると、アクティブペインに接続先のフォルダを表示する。接続先のフォルダは通常のペインと同じように移動できる。
+
+転送:
+
+| 組み合わせ | 操作 |
+| --- | --- |
+| ローカルのペインで選択 → 反対側がリモート | `C` でアップロード（反対側ペインのリモートフォルダへ） |
+| リモートのペインで選択 → 反対側がローカル | `C` でダウンロード（反対側ペインのローカルフォルダへ） |
+
+- 転送前に確認し、同名の項目がある場合は上書き確認を表示する
+- 転送はバックグラウンドで実行し、画面はブロックしない
+- 転送はSFTPのバイナリモードで行う。文字コードや改行コードを変換しないため、ファイルの内容はそのまま送られる
+- リモート同士の転送、アーカイブとの間の転送はできない
+
 ## 外部キー設定
 
 ユーザー設定は次の場所に保存する。
@@ -410,22 +488,15 @@ Git メニューのアクセラレータ:
 
 ```toml
 [keys]
-cursor_up = "Up"
-cursor_down = "Down"
+enter       = "Return"
+parent      = "Backspace"
 switch_pane = "Tab"
-parent_directory = "Backspace"
-copy = "C"
-move = "M"
-delete_permanent = "K"
-delete_recycle_bin = "Shift+K"
-rename = "R"
-incremental_filter = "F"
-file_name_search = "Shift+F"
-history = "H"
-jump_list = "J"
-select_drive = "D"
-refresh = "Shift+End"
-quit = "Q"
+copy        = "C"
+move        = "M"
+rename      = "R"
+drive       = "D"
+quit        = "Q"
+remote_connect = "Ctrl+Shift+S"
 ```
 
 キーからPython関数へ直接接続せず、操作名を経由する。
@@ -457,7 +528,7 @@ quit = "Q"
 | `↑` / `↓` | アプリを選択                                                 |
 | `Enter`   | 選択したアプリを起動                                         |
 | `→`       | アプリ設定タブへ切り替え                                     |
-| 文字入力  | インクリメンタルフィルタ（`Backspace`で1文字削除、`Esc`で解除） |
+| 文字入力  | インクリメンタルフィルタ。名前に文字列を含むアプリだけ表示（`Backspace`で1文字削除、`Esc`で解除） |
 
 `L`は、Gitメニュー内の`L`（pull）とは別の操作。
 

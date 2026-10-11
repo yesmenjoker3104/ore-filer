@@ -1,10 +1,10 @@
 """Git サービス - Dulwich で Git リポジトリを操作する。"""
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from difflib import unified_diff
 from io import BytesIO
-import os
 from pathlib import Path
 
 try:
@@ -119,7 +119,7 @@ def find_repo_root(path: str | Path) -> Path | None:
         if start.is_file():
             start = start.parent
         return Path(str(repo_type.discover(str(start)).path)).resolve()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     return None
 
@@ -133,7 +133,7 @@ def current_branch(repo: str | Path) -> str:
             if ref.startswith(b"refs/heads/"):
                 return _decode_path(ref[len(b"refs/heads/"):])
         return _object_id_text(head)[:7] or "HEAD"
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "HEAD"
 
 
@@ -305,7 +305,7 @@ def _inject_credentials(url: str, username: str | None, password: str | None) ->
     """HTTP/HTTPS URLにユーザー名・パスワードを埋め込んで返す。"""
     if not (username or password):
         return url
-    from urllib.parse import urlparse, urlunparse, quote
+    from urllib.parse import quote, urlparse, urlunparse
     parsed = urlparse(url)
     u = quote(username or "", safe="")
     p = quote(password or "", safe="")
@@ -322,7 +322,7 @@ def get_remote_url(repo: str | Path, remote: str = "origin") -> str | None:
         config = repo_obj.get_config()
         url = config.get((b"remote", remote.encode()), b"url")
         return url.decode("utf-8") if isinstance(url, bytes) else url
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -340,7 +340,7 @@ def _auth_location(repo_obj, username: str | None, password: str | None) -> str 
         config = repo_obj.get_config()
         url = config.get((b"remote", b"origin"), b"url")
         url = url.decode("utf-8") if isinstance(url, bytes) else url
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if not url or not url.startswith(("http://", "https://")):
         return None
@@ -391,7 +391,7 @@ def pull(
         loc = _auth_location(repo_obj, username, password)
         if loc:
             kwargs["remote_location"] = loc
-        result, output = _remote_call(
+        _, output = _remote_call(
             porcelain.pull, repo_obj, "pull",
             fast_forward=True, ff_only=True, force=True,
             **kwargs,
@@ -416,7 +416,7 @@ def push(
         loc = _auth_location(repo_obj, username, password)
         if loc:
             kwargs["remote_location"] = loc
-        result, output = _remote_call(porcelain.push, repo_obj, "push", **kwargs)
+        _, output = _remote_call(porcelain.push, repo_obj, "push", **kwargs)
         return output or "push completed"
     finally:
         repo_obj.close()
@@ -431,7 +431,7 @@ def head_file_text(repo: str | Path, path: Path) -> str:
         relative = _relative_paths(repo_obj, [Path(path)])[0]
         _, sha = head_tree.lookup_path(repo_obj.__getitem__, os.fsencode(relative))
         return repo_obj[sha].data.decode("utf-8", errors="replace")
-    except Exception:
+    except Exception:  # noqa: BLE001
         return ""
 
 

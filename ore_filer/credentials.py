@@ -63,7 +63,7 @@ def load(category: str, key: str) -> tuple[str, str] | None:
         if password is None:
             return None
         return username, password
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -77,11 +77,11 @@ def delete(category: str, key: str) -> None:
         credential_key = f"{username}@{key}" if username else key
         try:
             _keyring.delete_password(service, credential_key)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
         try:
             _keyring.delete_password(f"{service}:username", key)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass

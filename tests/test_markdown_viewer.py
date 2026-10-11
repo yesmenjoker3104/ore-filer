@@ -13,7 +13,7 @@ from ore_filer.gui.main_window import MainWindow
 
 class _EnterHarness:
     def __init__(self, path: Path):
-        self.panes = [SimpleNamespace(is_archive_view=lambda: False)]
+        self.panes = [SimpleNamespace(is_archive_view=lambda: False, is_remote_view=lambda: False)]
         self.active_pane_index = 0
         self.path = path
         self.opened_paths: list[Path] = []

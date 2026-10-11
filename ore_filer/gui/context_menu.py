@@ -1,5 +1,6 @@
 """Windows Shell context menu via ctypes COM (no pywin32 required)."""
 from __future__ import annotations
+
 import ctypes
 import ctypes.wintypes as wt
 from pathlib import Path
@@ -55,7 +56,7 @@ def show_shell_context_menu(paths: list[Path], hwnd: int) -> None:
     ole32.CoInitialize(None)
     try:
         _run(paths, hwnd)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
     finally:
         ole32.CoUninitialize()

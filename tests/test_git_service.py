@@ -322,7 +322,7 @@ class GitServiceTests(unittest.TestCase):
             ) as pull_mock:
                 try:
                     git_service.pull(root, username="user", password="token")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             loc = pull_mock.call_args.kwargs.get("remote_location", "")

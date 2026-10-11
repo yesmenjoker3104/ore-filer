@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QShowEvent
@@ -38,7 +38,6 @@ from ..services.app_launcher import (
 _TITLE = "アプリランチャー"
 _SETTINGS_TAB = 1
 _HINT_TEXT = "Enter: 起動 / →: アプリ設定 / 文字入力: インクリメンタルフィルタ"
-_SEARCH_RESET_MS = 1500
 _NAME_COL = 0
 _ALIAS_COL = 1
 _VISIBLE_COL = 2
@@ -52,18 +51,17 @@ class _AppList(QListWidget):
     def __init__(self) -> None:
         super().__init__()
         self._search = ""
-        self._reset_timer = QTimer(self)
-        self._reset_timer.setSingleShot(True)
-        self._reset_timer.timeout.connect(self.reset_search)
+
+    def query(self) -> str:
+        return self._search
 
     def reset_search(self) -> None:
-        self._reset_timer.stop()
         if not self._search:
             return
         self._search = ""
         self.search_changed.emit("")
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt override)
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
         if key == Qt.Key.Key_Right:
             self.right_pressed.emit()
@@ -90,23 +88,7 @@ class _AppList(QListWidget):
 
     def _set_search(self, text: str) -> None:
         self._search = text
-        self._reset_timer.start(_SEARCH_RESET_MS)
         self.search_changed.emit(text)
-        if not text:
-            return
-        row = self._find_row(text, max(self.currentRow(), 0))
-        if row >= 0:
-            self.setCurrentRow(row)
-
-    def _find_row(self, text: str, start: int) -> int:
-        needle = text.casefold()
-        count = self.count()
-        for offset in range(count):
-            row = (start + offset) % count
-            app = self.item(row).data(Qt.ItemDataRole.UserRole)
-            if needle in app.name.casefold():
-                return row
-        return -1
 
 
 class AppLauncherDialog(QDialog):
@@ -208,15 +190,29 @@ class AppLauncherDialog(QDialog):
 
     def _reload_list_tab(self) -> None:
         self._list.reset_search()
+        self._populate_list(self._list.query())
+
+    def _populate_list(self, query: str) -> None:
+        """検索文字列を名前に部分一致（大文字小文字を無視）させて一覧を組み直す。"""
+        needle = query.casefold()
+        current = self._list.currentItem()
+        previous_path = current.data(Qt.ItemDataRole.UserRole).path if current is not None else None
+
         self._list.clear()
         for app in self._apps:
-            if not app.show_in_list:
+            if not app.show_in_list or needle not in app.name.casefold():
                 continue
             item = QListWidgetItem(f"{app.name}    {app.path}")
             item.setData(Qt.ItemDataRole.UserRole, app)
             self._list.addItem(item)
-        if self._list.count():
-            self._list.setCurrentRow(0)
+
+        if not self._list.count():
+            return
+        for row in range(self._list.count()):
+            if self._list.item(row).data(Qt.ItemDataRole.UserRole).path == previous_path:
+                self._list.setCurrentRow(row)
+                return
+        self._list.setCurrentRow(0)
 
     def _reload_source_list(self) -> None:
         previous = self._current_source_key()
@@ -295,8 +291,9 @@ class AppLauncherDialog(QDialog):
 
     def _on_search_changed(self, text: str) -> None:
         self._hint_label.setText(f"フィルタ: {text}" if text else _HINT_TEXT)
+        self._populate_list(text)
 
-    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt override)
+    def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._list.setFocus(Qt.FocusReason.OtherFocusReason)
 
