@@ -54,7 +54,6 @@ def _capture_native_output() -> None:
         log = log_path.open("a", encoding="utf-8", buffering=1)
     except OSError:
         return
-    log.write(f"--- start {datetime.now().isoformat(timespec='seconds')} ---\n")
     sys.stderr = log
     sys.stdout = log
     try:
