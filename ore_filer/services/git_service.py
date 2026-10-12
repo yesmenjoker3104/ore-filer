@@ -556,3 +556,17 @@ def switch(repo: str | Path, branch: str) -> None:
         porcelain.checkout(repo_obj, target=branch)
     except Exception as error:
         raise GitError(f"ブランチ切替に失敗しました: {error}") from error
+
+
+def create_branch(repo: str | Path, name: str, *, checkout: bool = True) -> None:
+    """新規ブランチを作成し、必要に応じて切り替える。"""
+    repo_obj = _open_repo(repo)
+    try:
+        porcelain.branch_create(repo_obj, name.encode())
+    except Exception as error:
+        raise GitError(f"ブランチ作成に失敗しました: {error}") from error
+    if checkout:
+        try:
+            porcelain.checkout(repo_obj, target=name)
+        except Exception as error:
+            raise GitError(f"ブランチ切替に失敗しました: {error}") from error

@@ -355,7 +355,9 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		elif path.suffix.casefold() in HEX_EXTENSIONS:
 			self._open_hex_viewer(path)
 			return True
-		return False
+		# 未知拡張子: テキスト読み込みを試み、失敗したらHexビューア
+		self._open_unknown_file(path)
+		return True
 
 	def show_filter(self) -> None:
 		pane = self.active_pane
@@ -792,6 +794,13 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 			return
 		self.active_pane.reload()
 		self.active_pane._pending_focus = name
+		config = load_config()
+		editor = config.get("editor", "")
+		if editor:
+			try:
+				open_in_editor(new_path, editor)
+			except OSError:
+				pass
 
 	# ── エクスプローラーで開く ────────────────────────────────
 

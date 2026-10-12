@@ -96,9 +96,10 @@ class GitWindow(QDialog):
         row3 = QHBoxLayout()
         self._btn_diff    = self._make_btn("差分 (d)",        self._diff)
         self._btn_log     = self._make_btn("ログ (g)",         self._log)
-        self._btn_branch  = self._make_btn("ブランチ切替 (b)", self._switch_branch)
-        self._btn_refresh = self._make_btn("更新 (F5)",        self._refresh)
-        for btn in (self._btn_diff, self._btn_log, self._btn_branch, self._btn_refresh):
+        self._btn_branch     = self._make_btn("ブランチ切替 (b)",  self._switch_branch)
+        self._btn_new_branch = self._make_btn("新規ブランチ (B)", self._create_branch)
+        self._btn_refresh    = self._make_btn("更新 (F5)",         self._refresh)
+        for btn in (self._btn_diff, self._btn_log, self._btn_branch, self._btn_new_branch, self._btn_refresh):
             row3.addWidget(btn)
         row3.addStretch()
 
@@ -122,6 +123,7 @@ class GitWindow(QDialog):
             ("d",  self._diff),
             ("g",  self._log),
             ("b",  self._switch_branch),
+            ("B",  self._create_branch),
             ("F5", self._refresh),
         ):
             sc = QShortcut(QKeySequence(key), self)
@@ -395,6 +397,20 @@ class GitWindow(QDialog):
                     DiffDialog(commit_hash, "show", diff_text, self).exec()
                 except Exception as e:  # noqa: BLE001
                     QMessageBox.warning(self, "git show", str(e))
+
+    def _create_branch(self) -> None:
+        name, ok = QInputDialog.getText(self, "新規ブランチ作成", "ブランチ名:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        try:
+            git_service.create_branch(self._repo, name, checkout=True)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "新規ブランチ作成", f"失敗しました:\n{e}")
+            return
+        self._refresh()
+        self.repo_changed.emit()
+        self._set_status(f"ブランチ '{name}' を作成して切り替えました")
 
     def _switch_branch(self) -> None:
         try:

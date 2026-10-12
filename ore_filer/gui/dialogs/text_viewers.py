@@ -181,12 +181,34 @@ class XmlViewerDialog(QDialog):
 class LogViewerDialog(QDialog):
     """ログファイルのビューア（重大度で行を色分け）。"""
 
+    # 行頭パターン優先（[LEVEL] / LEVEL: / level=value）、次に単語境界マッチ
+    # 変数名 errorCount 等の誤検知を抑制するため先頭側パターンを優先する
     _LEVELS = (
-        (re.compile(r"\b(FATAL|CRITICAL|SEVERE)\b", re.IGNORECASE), "#5a1a1a", "#ff9090"),
-        (re.compile(r"\bERROR\b",                   re.IGNORECASE), "#3a1e1e", "#e8b5b5"),
-        (re.compile(r"\bWARN(ING)?\b",              re.IGNORECASE), "#3a2e00", "#f0d040"),
-        (re.compile(r"\bINFO\b",                    re.IGNORECASE), "#1e2a3a", "#9ac0e8"),
-        (re.compile(r"\bDEBUG\b",                   re.IGNORECASE), "#2a2a2a", "#888888"),
+        (re.compile(
+            r"(?:^\s*\[?(FATAL|CRITICAL|SEVERE)\]?[\s:=])"
+            r"|\b(FATAL|CRITICAL|SEVERE)\b",
+            re.IGNORECASE,
+        ), "#5a1a1a", "#ff9090"),
+        (re.compile(
+            r"(?:^\s*\[?ERROR\]?[\s:=])|(?:level\s*=\s*[\"']?error[\"']?)"
+            r"|\bERROR\b(?!\w)",
+            re.IGNORECASE,
+        ), "#3a1e1e", "#e8b5b5"),
+        (re.compile(
+            r"(?:^\s*\[?WARN(?:ING)?\]?[\s:=])|(?:level\s*=\s*[\"']?warn[\"']?)"
+            r"|\bWARN(?:ING)?\b(?!\w)",
+            re.IGNORECASE,
+        ), "#3a2e00", "#f0d040"),
+        (re.compile(
+            r"(?:^\s*\[?INFO\]?[\s:=])|(?:level\s*=\s*[\"']?info[\"']?)"
+            r"|\bINFO\b(?!\w)",
+            re.IGNORECASE,
+        ), "#1e2a3a", "#9ac0e8"),
+        (re.compile(
+            r"(?:^\s*\[?DEBUG\]?[\s:=])|(?:level\s*=\s*[\"']?debug[\"']?)"
+            r"|\bDEBUG\b(?!\w)",
+            re.IGNORECASE,
+        ), "#2a2a2a", "#888888"),
     )
 
     def __init__(self, path: Path, parent=None) -> None:

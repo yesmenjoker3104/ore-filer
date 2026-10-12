@@ -192,33 +192,33 @@ class MainWindowFileOpsMixin:
 
 		
 	def create_folder(self) -> None:
-		folder_name, ok = QInputDialog.getText(
+		text, ok = QInputDialog.getMultiLineText(
 			self,
 			"新規フォルダの作成",
-			"フォルダ名:"
+			"フォルダ名（1行1フォルダ。Ctrl+Enter で確定）:",
 		)
-		if ok and folder_name:
+		if not ok or not text.strip():
+			return
+		names = [line.strip() for line in text.splitlines() if line.strip()]
+		errors: list[str] = []
+		for folder_name in names:
 			new_folder_path = self.active_pane.current_path / folder_name
 			if new_folder_path.exists():
-				QMessageBox.warning(
-					self,
-					"警告",
-					"同名のフォルダ、またはファイルが存在します。"
-				)
-				return
+				errors.append(f"{folder_name}: 同名のフォルダまたはファイルが存在します")
+				continue
 			try:
 				create_directory(self.active_pane.current_path, folder_name)
 			except Exception as e:  # noqa: BLE001
-				QMessageBox.critical(
-					self,
-					"エラー",
-					f"フォルダの作成に失敗しました:\n{e}"
-				)
-				return
-			self.active_pane.reload()
+				errors.append(f"{folder_name}: {e}")
+		self.active_pane.reload()
+		if errors:
+			QMessageBox.warning(self, "警告", "\n".join(errors))
 
 
 	def rename_item(self) -> None:
+		if len(self.active_pane.selected_paths()) > 1:
+			self.bulk_rename()
+			return
 		index = self.active_pane.file_view.currentIndex()
 		old_path = self.active_pane.path_from_index(index)
 		if old_path is None:
@@ -251,6 +251,19 @@ class MainWindowFileOpsMixin:
 			self.active_pane.reload()
 
 
+	@staticmethod
+	def _calc_total_size(paths: list) -> int:
+		total = 0
+		for p in paths:
+			try:
+				if p.is_dir():
+					total += sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+				else:
+					total += p.stat().st_size
+			except OSError:
+				pass
+		return total
+
 	def delete_selected(self) -> None:
 		paths = self.active_pane.selected_paths()
 		if not paths:
@@ -261,6 +274,7 @@ class MainWindowFileOpsMixin:
 			"削除確認",
 			"次の項目を完全削除しますか？",
 			[path.name for path in paths],
+			total_size=self._calc_total_size(paths),
 		):
 			return
 
@@ -282,6 +296,7 @@ class MainWindowFileOpsMixin:
 			"ごみ箱への移動",
 			"次の項目をごみ箱へ移動しますか？",
 			[path.name for path in paths],
+			total_size=self._calc_total_size(paths),
 		):
 			return
 
@@ -345,7 +360,7 @@ class MainWindowFileOpsMixin:
 	def _file_op_completed(self, message: str) -> None:
 		self.left_pane.reload()
 		self.right_pane.reload()
-		self.statusBar().showMessage(message, 5000)
+		self.statusBar().showMessage(message)
 
 
 	def _file_op_failed(self, message: str) -> None:

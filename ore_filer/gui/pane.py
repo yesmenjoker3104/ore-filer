@@ -313,7 +313,13 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
 
     def clear_filter(self) -> None:
         if self.is_archive_view() and self.archive_filter_model.has_filter() or self.filter_model.has_filter():
+            # フィルター解除後もカーソル位置を維持するため現在地を保存してから解除
+            current_path = self.path_from_index(self.file_view.currentIndex())
             self.set_filter("")
+            if current_path is not None:
+                idx = self.index_for_path(current_path)
+                if idx.isValid():
+                    self.file_view.setCurrentIndex(idx)
 
     def show_search_results(
         self,

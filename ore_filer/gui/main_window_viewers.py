@@ -108,20 +108,30 @@ class MainWindowViewersMixin:
 	def _open_hex_viewer(self, path: Path) -> None:
 		HexViewerDialog(path, self).exec()
 
+	def _open_unknown_file(self, path: Path) -> None:
+		try:
+			text, encoding = read_text_preview(path)
+		except (ValueError, OSError):
+			HexViewerDialog(path, self).exec()
+			return
+		TextViewerDialog(path, text, encoding, self).exec()
+
 
 	# ── テキストビューア ──────────────────────────────────────
 
 	def view_text(self) -> None:
 		path = self.focused_path()
-		if path is None or path.is_dir() or self.active_pane.is_archive_view():
+		if path is None or path.is_dir():
 			return
-		try:
-			text, encoding = read_text_preview(path)
-		except ValueError as e:
-			QMessageBox.warning(self, "テキストビューア", str(e))
+		# アーカイブ内はテキストビューアで直接開く
+		if self.active_pane.is_archive_view():
+			try:
+				text, encoding = read_text_preview(path)
+			except (ValueError, OSError) as e:
+				QMessageBox.warning(self, "テキストビューア", str(e))
+				return
+			lines = self.active_pane.grep_lines(path)
+			TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
 			return
-		except OSError as e:
-			QMessageBox.warning(self, "テキストビューア", f"読み込みに失敗しました:\n{e}")
-			return
-		lines = self.active_pane.grep_lines(path)
-		TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
+		# 通常ファイルは Enter と同じ自動ビューア選択
+		self._handle_enter()

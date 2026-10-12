@@ -24,6 +24,7 @@ def confirm_list(
     title: str,
     message: str,
     items: list[str],
+    total_size: int | None = None,
 ) -> bool:
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)
@@ -44,10 +45,15 @@ def confirm_list(
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
 
+    if total_size is not None:
+        summary = f"{len(items)}件 / 合計 {_fmt_file_size(total_size)}"
+    else:
+        summary = f"{len(items)}件"
+
     layout = QVBoxLayout(dialog)
     layout.addWidget(label)
     layout.addWidget(list_widget, 1)
-    layout.addWidget(QLabel(f"{len(items)}件"))
+    layout.addWidget(QLabel(summary))
     layout.addWidget(buttons)
 
     dialog.resize(520, 420)

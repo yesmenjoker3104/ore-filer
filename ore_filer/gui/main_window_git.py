@@ -362,6 +362,24 @@ class MainWindowGitMixin:
 		self.statusBar().showMessage(f"ブランチを '{selected}' に切り替えました", 5000)
 
 
+	def git_create_branch(self) -> None:
+		"""新規ブランチを作成して切り替える。"""
+		repo = self._git_repo()
+		if repo is None:
+			return
+		name, ok = QInputDialog.getText(self, "新規ブランチ作成", "ブランチ名:")
+		if not ok or not name.strip():
+			return
+		name = name.strip()
+		try:
+			git_service.create_branch(repo, name, checkout=True)
+		except Exception as e:  # noqa: BLE001
+			QMessageBox.warning(self, "新規ブランチ作成", f"失敗しました:\n{e}")
+			return
+		for pane in self.panes:
+			self._refresh_git_status(pane)
+		self.statusBar().showMessage(f"ブランチ '{name}' を作成して切り替えました", 5000)
+
 	def _on_git_command_done(self, op: str, output: str) -> None:
 		for pane in self.panes:
 			self._refresh_git_status(pane)
