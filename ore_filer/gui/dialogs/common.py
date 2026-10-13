@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 from pathlib import Path
 
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
 )
@@ -145,3 +147,41 @@ class ConflictDialog(QDialog):
 
     def apply_to_all(self) -> bool:
         return self._apply_all_cb.isChecked()
+
+
+# ── 複数行テキスト入力ダイアログ ──────────────────────────────
+
+
+class MultiLineInputDialog(QDialog):
+    """複数行テキスト入力ダイアログ。Ctrl+Enter で確定できる。"""
+
+    def __init__(self, title: str, label: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(420, 200)
+
+        self._edit = QPlainTextEdit()
+        self._edit.installEventFilter(self)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(label))
+        layout.addWidget(self._edit, 1)
+        layout.addWidget(buttons)
+
+    def text(self) -> str:
+        return self._edit.toPlainText()
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._edit and event.type() == QEvent.Type.KeyPress:
+            if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                    and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+                self.accept()
+                return True
+        return super().eventFilter(watched, event)

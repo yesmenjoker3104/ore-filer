@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from ore_filer.gui.dialogs.common import ConflictDialog, confirm_list
+from ore_filer.gui.dialogs.common import ConflictDialog, MultiLineInputDialog, confirm_list
 from ore_filer.gui.threads import FileOperationThread
 from ore_filer.services.undo import UndoEntry, UndoRecord
 from ore_filer.services.file_operations import (
@@ -209,12 +209,15 @@ class MainWindowFileOpsMixin:
 
 		
 	def create_folder(self) -> None:
-		text, ok = QInputDialog.getMultiLineText(
-			self,
+		dlg = MultiLineInputDialog(
 			"新規フォルダの作成",
-			"フォルダ名（1行1フォルダ。Ctrl+Enter で確定）:",
+			"フォルダ名（1行1フォルダ、Ctrl+Enter で確定）:",
+			self,
 		)
-		if not ok or not text.strip():
+		if dlg.exec() != QDialog.DialogCode.Accepted:
+			return
+		text = dlg.text()
+		if not text.strip():
 			return
 		names = [line.strip() for line in text.splitlines() if line.strip()]
 		errors: list[str] = []
