@@ -21,6 +21,7 @@ from ore_filer.gui.dialogs.viewers import (
 	SvgViewerDialog,
 )
 from ore_filer.services.file_operations import read_text_preview
+from ore_filer.services.office_text import OFFICE_EXTENSIONS, extract_office_text
 
 
 class MainWindowViewersMixin:
@@ -102,8 +103,22 @@ class MainWindowViewersMixin:
 		except OSError as error:
 			QMessageBox.critical(self, "テキスト Viewer", f"読み込みに失敗しました：\n{error}")
 			return
-		TextViewerDialog(path, text, encoding, self).exec()
+		lines = self.active_pane.grep_lines(path)
+		TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
 
+
+	def _open_office_viewer(self, path: Path) -> None:
+		"""Office 文書（xlsx/docx/pptx 等）をテキスト抽出して TextViewerDialog で表示する。
+		GREP ヒット行ハイライト付き。"""
+		text = extract_office_text(path)
+		if not text:
+			QMessageBox.warning(self, "Office Viewer", "テキストを抽出できませんでした。")
+			return
+		lines = self.active_pane.grep_lines(path)
+		TextViewerDialog(
+			path, text, "utf-8 (extracted)",
+			highlight_lines=lines or None, parent=self,
+		).exec()
 
 	def _open_hex_viewer(self, path: Path) -> None:
 		HexViewerDialog(path, self).exec()
@@ -114,7 +129,8 @@ class MainWindowViewersMixin:
 		except (ValueError, OSError):
 			HexViewerDialog(path, self).exec()
 			return
-		TextViewerDialog(path, text, encoding, self).exec()
+		lines = self.active_pane.grep_lines(path)
+		TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
 
 
 	# ── テキストビューア ──────────────────────────────────────
@@ -134,4 +150,4 @@ class MainWindowViewersMixin:
 			TextViewerDialog(path, text, encoding, highlight_lines=lines or None, parent=self).exec()
 			return
 		# 通常ファイルは Enter と同じ自動ビューア選択
-		self._handle_enter()
+		self.enter_current_item()

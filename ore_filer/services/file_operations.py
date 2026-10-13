@@ -523,8 +523,25 @@ def _safe_extract_path(destination: Path, member_name: str) -> Path:
     return target
 
 
-def _extract_zip(archive_path: Path, destination: Path) -> None:
-    with zipfile.ZipFile(archive_path, mode="r") as archive:
+def _zip_is_encrypted(archive_path: Path) -> bool:
+    """ZIP ファイルが暗号化されているか判定する（展開前のチェック用）。"""
+    try:
+        import pyzipper
+        with pyzipper.AESZipFile(archive_path, "r") as zf:
+            return any(info.flag_bits & 0x1 for info in zf.infolist())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _extract_zip(archive_path: Path, destination: Path, password: str | None = None) -> None:
+    try:
+        import pyzipper
+    except ModuleNotFoundError as error:
+        raise ArchiveFormatError(".zip の展開には pyzipper が必要です。") from error
+
+    with pyzipper.AESZipFile(archive_path, mode="r") as archive:
+        if password:
+            archive.setpassword(password.encode("utf-8"))
         for info in archive.infolist():
             target = _safe_extract_path(destination, info.filename)
             mode = (info.external_attr >> 16) & 0o170000
@@ -535,8 +552,17 @@ def _extract_zip(archive_path: Path, destination: Path) -> None:
                 continue
 
             target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info, mode="r") as source, target.open("wb") as output:
-                shutil.copyfileobj(source, output)
+            try:
+                with archive.open(info, mode="r") as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+            except RuntimeError as error:
+                # pyzipper / zipfile のパスワード未設定・不正メッセージを変換する
+                msg = str(error)
+                if "password" in msg.lower() or "encrypted" in msg.lower():
+                    raise ArchivePasswordError(
+                        "このアーカイブを展開するにはパスワードが必要です。"
+                    ) from error
+                raise
 
 
 def _extract_tar(archive_path: Path, destination: Path, archive_type: str) -> None:
@@ -578,7 +604,7 @@ def _extract_7z(archive_path: Path, destination: Path) -> None:
         archive.extractall(path=destination)
 
 
-def extract_archive(archive_path: Path, destination: Path) -> Path:
+def extract_archive(archive_path: Path, destination: Path, *, password: str | None = None) -> Path:
     archive_path = archive_path.expanduser().resolve()
     destination = destination.expanduser().resolve()
     archive_type = _archive_format(archive_path)
@@ -589,7 +615,7 @@ def extract_archive(archive_path: Path, destination: Path) -> Path:
         raise NotADirectoryError(destination)
 
     if archive_type == "zip":
-        _extract_zip(archive_path, destination)
+        _extract_zip(archive_path, destination, password)
     elif archive_type == "7z":
         _extract_7z(archive_path, destination)
     else:
@@ -661,14 +687,21 @@ def delete_paths(paths: list[Path], *, progress_cb=None) -> None:
             progress_cb(i + 1, total)
 
 
-def trash_paths(paths: list[Path], *, progress_cb=None) -> None:
+def trash_paths(paths: list[Path], *, progress_cb=None) -> list[tuple[Path, Path]]:
+    """ごみ箱に移動し (original, trash_path) のペアリストを返す。
+    trash_path は $Recycle.Bin 内の $R* ファイル。$I* メタファイルは残るが復元操作上は問題ない。"""
     from PySide6.QtCore import QFile
+    result: list[tuple[Path, Path]] = []
     total = len(paths)
     for i, path in enumerate(paths):
-        if not QFile.moveToTrash(str(path)):
+        f = QFile(str(path))
+        if not f.moveToTrash():
             raise OSError(f"ごみ箱への移動に失敗しました: {path}")
+        trash_str = f.fileName()
+        result.append((path, Path(trash_str) if trash_str else path))
         if progress_cb:
             progress_cb(i + 1, total)
+    return result
 
 
 def create_directory(parent: Path, name: str) -> Path:
@@ -700,6 +733,54 @@ def move_paths(
                 raise FileExistsError(target)
             _remove_existing(target)
         shutil.move(source, target)
+        if progress_cb:
+            progress_cb(i + 1, total)
+
+
+# ── コピー・移動（明示ペア版） ────────────────────────────
+
+
+def unique_path(target: Path) -> Path:
+    """既存ファイル/フォルダと衝突しない名前を返す。
+    例: 「report.txt」→「report (2).txt」→「report (3).txt」…"""
+    if not target.exists():
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    parent = target.parent
+    n = 2
+    while True:
+        candidate = parent / f"{stem} ({n}){suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def copy_items(pairs: list[tuple[Path, Path]], *, progress_cb=None) -> None:
+    """(src, dst) の確定ペアでコピーを実行する。dst 親フォルダは自動生成する。
+    dst が既に存在する場合は上書き（事前に _resolve_conflicts で決定済みの想定）。"""
+    total = len(pairs)
+    for i, (src, dst) in enumerate(pairs):
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            _remove_existing(dst)
+        if src.is_file():
+            shutil.copy2(src, dst)
+        elif src.is_dir():
+            shutil.copytree(src, dst)
+        if progress_cb:
+            progress_cb(i + 1, total)
+
+
+def move_items(pairs: list[tuple[Path, Path]], *, progress_cb=None) -> None:
+    """(src, dst) の確定ペアで移動を実行する。dst 親フォルダは自動生成する。
+    dst が既に存在する場合は上書き（事前に _resolve_conflicts で決定済みの想定）。"""
+    total = len(pairs)
+    for i, (src, dst) in enumerate(pairs):
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            _remove_existing(dst)
+        shutil.move(src, dst)
         if progress_cb:
             progress_cb(i + 1, total)
 

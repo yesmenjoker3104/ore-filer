@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
-from ore_filer.gui.dialogs.file_list_dialogs import KeymapHelpDialog
+from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog, KeymapHelpDialog
 from ore_filer.gui.keymap import user_keymap_file
 
 
@@ -63,196 +63,7 @@ class MainWindowKeysMixin:
 
 			# ── キーマップ経由ディスパッチ ──
 			action = km.action_for(event)
-
-			if action == "center_splitter":
-				self._center_splitter()
-				return True
-			elif action == "copy":
-				self.copy_selected()
-				return True
-			elif action == "copy_names":
-				self._copy_names_to_clipboard()
-				return True
-			elif action == "copy_paths":
-				self._copy_paths_to_clipboard()
-				return True
-			elif action == "move":
-				if self.active_pane.selected_paths():
-					self.move_selected()
-				else:
-					self.create_folder()
-				return True
-			elif action == "delete":
-				self.delete_selected()
-				return True
-			elif action == "trash":
-				self.trash_selected()
-				return True
-			elif action == "rename":
-				self.rename_item()
-				return True
-			elif action == "bulk_rename":
-				self.bulk_rename()
-				return True
-			elif action == "select_down":
-				self.active_pane.select_current_and_move_down()
-				return True
-			elif action == "select_up":
-				self.active_pane.select_current_and_move_up()
-				return True
-			elif action == "page_down":
-				self.active_pane.move_page_down()
-				return True
-			elif action == "page_up":
-				self.active_pane.move_page_up()
-				return True
-			elif action == "range_select":
-				self.active_pane.range_select()
-				return True
-			elif action == "select_all_files":
-				self.active_pane.select_all_files()
-				return True
-			elif action == "select_all":
-				self.active_pane.select_all_items()
-				return True
-			elif action == "deselect":
-				self.active_pane.deselect_all()
-				return True
-			elif action == "reload" or action == "refresh":
-				self.active_pane.reload()
-				return True
-			elif action == "parent":
-				self.active_pane.go_to_parent()
-				return True
-			elif action == "context_menu":
-				self._show_context_menu()
-				return True
-			elif action == "file_info":
-				self._show_file_info()
-				return True
-			elif action == "folder_size":
-				self.calc_folder_size()
-				return True
-			elif action == "view_text":
-				self.view_text()
-				return True
-			elif action == "open_editor":
-				self.open_editor()
-				return True
-			elif action == "set_editor":
-				self.choose_editor()
-				return True
-			elif action == "terminal":
-				self.open_terminal_here()
-				return True
-			elif action == "open_with_app":
-				self.open_with_registered_app()
-				return True
-			elif action == "compare":
-				self.compare_select()
-				return True
-			elif action == "wildcard":
-				self.wildcard_select()
-				return True
-			elif action == "history":
-				self.show_history()
-				return True
-			elif action == "bookmark":
-				self._show_bookmark_list(local=True)
-				return True
-			elif action == "bookmark_all":
-				self._show_bookmark_list(local=False)
-				return True
-			elif action == "bookmark_add":
-				self._toggle_bookmark()
-				return True
-			elif action == "filter":
-				self.show_filter()
-				return True
-			elif action == "search":
-				self.search_files()
-				return True
-			elif action == "grep":
-				self.grep_files()
-				return True
-			elif action == "sort":
-				self.sort_files()
-				return True
-			elif action == "drive":
-				self.select_drive()
-				return True
-			elif action == "archive":
-				self.create_archive()
-				return True
-			elif action == "extract":
-				self.extract_archives()
-				return True
-			elif action == "sync_panes":
-				self.move_to_inactive_path()
-				return True
-			elif action == "sync_other":
-				self.move_inactive_to_active_path()
-				return True
-			elif action == "font_larger":
-				for pane in self.panes:
-					pane.adjust_font_size(+1)
-				return True
-			elif action == "font_smaller":
-				for pane in self.panes:
-					pane.adjust_font_size(-1)
-				return True
-			elif action == "home_dir":
-				self.active_pane.navigate_to(Path.home())
-				return True
-			elif action == "jump_path":
-				self._jump_to_input_path()
-				return True
-			elif action == "expand_tree":
-				index = self.active_pane.file_view.currentIndex()
-				if index.isValid() and self.active_pane.is_dir(index):
-					fv = self.active_pane.file_view
-					if fv.isExpanded(index):
-						fv.collapse(index)
-					else:
-						fv.expand(index)
-				return True
-			elif action == "new_file":
-				self.create_new_file()
-				return True
-			elif action == "explorer":
-				self.reveal_in_explorer_here()
-				return True
-			elif action == "toggle_hidden":
-				self.toggle_hidden()
-				return True
-			elif action == "diff":
-				self.diff_files()
-				return True
-			elif action == "git_menu":
-				self.show_git_menu()
-				return True
-			elif action == "keymap_help":
-				self.show_keymap_help()
-				return True
-			elif action == "remote_connect":
-				if self.active_pane.is_remote_view():
-					self.disconnect_remote()
-				else:
-					self.connect_remote()
-				return True
-			elif action == "update_check":
-				from ore_filer.version import __version__
-				self.statusBar().showMessage(f"Ore Filer v{__version__} — アップデートを確認中...")
-				self._check_for_updates(force=True)
-				return True
-			elif action == "quit":
-				confirm = QMessageBox.question(
-					self, "終了確認", "アプリケーションを終了しますか？",
-					QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-					QMessageBox.StandardButton.No,
-				)
-				if confirm == QMessageBox.StandardButton.Yes:
-					self.close()
+			if action is not None and self._run_action(action):
 				return True
 
 			# ── Escape（アクション名なし）──
@@ -265,6 +76,174 @@ class MainWindowKeysMixin:
 					return True
 
 		return super().eventFilter(watched, event)
+
+
+	def _run_action(self, action: str) -> bool:
+		"""アクション名を受け取り対応する処理を実行する。処理した場合 True を返す。
+		コマンドパレットからも eventFilter からも呼ばれる。"""
+		if action == "center_splitter":
+			self._center_splitter()
+		elif action == "copy":
+			self.copy_selected()
+		elif action == "copy_names":
+			self._copy_names_to_clipboard()
+		elif action == "copy_paths":
+			self._copy_paths_to_clipboard()
+		elif action == "move":
+			if self.active_pane.selected_paths():
+				self.move_selected()
+			else:
+				self.create_folder()
+		elif action == "delete":
+			self.delete_selected()
+		elif action == "trash":
+			self.trash_selected()
+		elif action == "undo":
+			self.undo_last()
+		elif action == "rename":
+			self.rename_item()
+		elif action == "bulk_rename":
+			self.bulk_rename()
+		elif action == "select_down":
+			self.active_pane.select_current_and_move_down()
+		elif action == "select_up":
+			self.active_pane.select_current_and_move_up()
+		elif action == "page_down":
+			self.active_pane.move_page_down()
+		elif action == "page_up":
+			self.active_pane.move_page_up()
+		elif action == "range_select":
+			self.active_pane.range_select()
+		elif action == "select_all_files":
+			self.active_pane.select_all_files()
+		elif action == "select_all":
+			self.active_pane.select_all_items()
+		elif action == "deselect":
+			self.active_pane.deselect_all()
+		elif action in ("reload", "refresh"):
+			self.active_pane.reload()
+		elif action == "parent":
+			self.active_pane.go_to_parent()
+		elif action == "switch_pane":
+			self._switch_pane()
+		elif action == "context_menu":
+			self._show_context_menu()
+		elif action == "file_info":
+			self._show_file_info()
+		elif action == "folder_size":
+			self.calc_folder_size()
+		elif action == "open_editor":
+			self.open_editor()
+		elif action == "set_editor":
+			self.choose_editor()
+		elif action == "terminal":
+			self.open_terminal_here()
+		elif action == "open_with_app":
+			self.open_with_registered_app()
+		elif action == "compare":
+			self.compare_select()
+		elif action == "wildcard":
+			self.wildcard_select()
+		elif action == "history":
+			self.show_history()
+		elif action == "bookmark":
+			self._show_bookmark_list(local=True)
+		elif action == "bookmark_all":
+			self._show_bookmark_list(local=False)
+		elif action == "bookmark_add":
+			self._toggle_bookmark()
+		elif action == "filter":
+			self.show_filter()
+		elif action == "search":
+			self.search_files()
+		elif action == "grep":
+			self.grep_files()
+		elif action == "sort":
+			self.sort_files()
+		elif action == "drive":
+			self.select_drive()
+		elif action == "archive":
+			self.create_archive()
+		elif action == "extract":
+			self.extract_archives()
+		elif action == "sync_panes":
+			self.move_to_inactive_path()
+		elif action == "sync_other":
+			self.move_inactive_to_active_path()
+		elif action == "font_larger":
+			for pane in self.panes:
+				pane.adjust_font_size(+1)
+		elif action == "font_smaller":
+			for pane in self.panes:
+				pane.adjust_font_size(-1)
+		elif action == "home_dir":
+			self.active_pane.navigate_to(Path.home())
+		elif action == "jump_path":
+			self._jump_to_input_path()
+		elif action == "expand_tree":
+			index = self.active_pane.file_view.currentIndex()
+			if index.isValid() and self.active_pane.is_dir(index):
+				fv = self.active_pane.file_view
+				if fv.isExpanded(index):
+					fv.collapse(index)
+				else:
+					fv.expand(index)
+		elif action == "new_file":
+			self.create_new_file()
+		elif action == "explorer":
+			self.reveal_in_explorer_here()
+		elif action == "toggle_hidden":
+			self.toggle_hidden()
+		elif action == "diff":
+			self.diff_files()
+		elif action == "git_menu":
+			self.show_git_menu()
+		elif action == "keymap_help":
+			self.show_keymap_help()
+		elif action == "command_palette":
+			self.show_command_palette()
+		elif action == "toggle_preview":
+			self.toggle_preview()
+		elif action == "tab_new":
+			self.tab_new()
+		elif action == "tab_close":
+			self.tab_close()
+		elif action == "tab_next":
+			self.tab_next()
+		elif action == "tab_prev":
+			self.tab_prev()
+		elif action == "remote_connect":
+			if self.active_pane.is_remote_view():
+				self.disconnect_remote()
+			else:
+				self.connect_remote()
+		elif action == "update_check":
+			from ore_filer.version import __version__
+			self.statusBar().showMessage(f"Ore Filer v{__version__} — アップデートを確認中...")
+			self._check_for_updates(force=True)
+		elif action == "quit":
+			confirm = QMessageBox.question(
+				self, "終了確認", "アプリケーションを終了しますか？",
+				QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+				QMessageBox.StandardButton.No,
+			)
+			if confirm == QMessageBox.StandardButton.Yes:
+				self.close()
+		else:
+			return False
+		return True
+
+
+	# ── コマンドパレット ──────────────────────────────────────
+
+	def show_command_palette(self) -> None:
+		"""コマンドパレットを開き、選択されたアクションを実行する。"""
+		bindings = self._keymap.all_bindings()
+		dlg = CommandPaletteDialog(bindings, self)
+		if dlg.exec() == QDialog.DialogCode.Accepted:
+			action = dlg.accepted_action()
+			if action:
+				self._run_action(action)
 
 
 	# ── キーマップウォッチャー ────────────────────────────────

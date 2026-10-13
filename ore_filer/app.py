@@ -85,6 +85,12 @@ def main() -> int:
     window.setWindowIcon(icon)
     window.restore_window_state(session.get("geometry", ""), session.get("splitter", ""))
     window.restore_font_size(session.get("font_size", 0))
+    window.restore_tabs(
+        session.get("left_tabs", []),
+        session.get("left_tab_index", 0),
+        session.get("right_tabs", []),
+        session.get("right_tab_index", 0),
+    )
     window.show()
     return app.exec()
 

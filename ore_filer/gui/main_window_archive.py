@@ -9,7 +9,7 @@ from ore_filer.gui.dialogs.common import confirm_list
 from ore_filer.gui.dialogs.file_list_dialogs import ArchiveDialog
 from ore_filer.gui.pane import PaneWidget
 from ore_filer.gui.threads import ArchiveCopyThread, ArchiveThread, ExtractArchiveThread
-from ore_filer.services.file_operations import ArchivePasswordError
+from ore_filer.services.file_operations import ArchivePasswordError, _zip_is_encrypted
 
 
 class MainWindowArchiveMixin:
@@ -153,9 +153,26 @@ class MainWindowArchiveMixin:
 		if confirm != QMessageBox.StandardButton.Yes:
 			return
 
+		# パスワード付き ZIP が含まれていればパスワードを確認する
+		password: str | None = None
+		needs_pw = any(
+			p.suffix.casefold() == ".zip" and _zip_is_encrypted(p)
+			for p in paths
+		)
+		if needs_pw:
+			pw, ok = QInputDialog.getText(
+				self,
+				"アーカイブのパスワード",
+				"パスワードを入力してください（全ファイル共通）:",
+				QLineEdit.EchoMode.Password,
+			)
+			if not ok:
+				return
+			password = pw or None
+
 		total = len(paths)
 		self.statusBar().showMessage("アーカイブを展開しています...")
-		thread = ExtractArchiveThread(paths, inactive_pane.current_path, self)
+		thread = ExtractArchiveThread(paths, inactive_pane.current_path, password=password, parent=self)
 		if total > 1:
 			thread.progress.connect(
 				lambda done, t: self.statusBar().showMessage(f"アーカイブを展開しています... {done}/{t}件")

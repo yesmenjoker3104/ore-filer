@@ -229,5 +229,145 @@ class ClearFilterCursorTests(unittest.TestCase):
             pane.close()
 
 
+# ── _open_plaintext_viewer / _open_unknown_file の TextViewerDialog 引数修正 ──
+
+class OpenPlaintextViewerTests(unittest.TestCase):
+    """_open_plaintext_viewer と _open_unknown_file が TextViewerDialog を
+    highlight_lines・parent キーワードで正しく呼ぶことを確認する。"""
+
+    def _make_mainwindow(self, tmp: Path):
+        from ore_filer.gui.main_window import MainWindow
+        mw = MainWindow(str(tmp), str(tmp))
+        return mw
+
+    def test_plaintext_viewer_passes_parent_kwarg(self) -> None:
+        """_open_plaintext_viewer が parent=self で TextViewerDialog を生成すること。"""
+        import unittest.mock as mock
+        with TemporaryDirectory() as tmp:
+            f = Path(tmp) / "hello.txt"
+            f.write_text("line1\nline2\n", encoding="utf-8")
+            mw = self._make_mainwindow(Path(tmp))
+            _app.processEvents()
+            with mock.patch(
+                "ore_filer.gui.main_window_viewers.TextViewerDialog"
+            ) as MockDlg:
+                MockDlg.return_value.exec.return_value = None
+                mw._open_plaintext_viewer(f)
+            args, kwargs = MockDlg.call_args
+            # 第4引数（位置引数）に self（MainWindow）が渡っていないこと
+            # parent キーワード引数が mw であること
+            self.assertIs(kwargs.get("parent"), mw)
+            self.assertNotIn(mw, args)
+            mw.close()
+
+    def test_unknown_file_passes_parent_kwarg(self) -> None:
+        """_open_unknown_file が parent=self で TextViewerDialog を生成すること。"""
+        import unittest.mock as mock
+        with TemporaryDirectory() as tmp:
+            f = Path(tmp) / "data.bin"
+            f.write_bytes(b"hello world\n")
+            mw = self._make_mainwindow(Path(tmp))
+            _app.processEvents()
+            with mock.patch(
+                "ore_filer.gui.main_window_viewers.TextViewerDialog"
+            ) as MockDlg:
+                MockDlg.return_value.exec.return_value = None
+                mw._open_unknown_file(f)
+            args, kwargs = MockDlg.call_args
+            self.assertIs(kwargs.get("parent"), mw)
+            self.assertNotIn(mw, args)
+            mw.close()
+
+
+# ── コマンドパレット ───────────────────────────────────────────────────────────
+
+class CommandPaletteDialogTests(unittest.TestCase):
+    """CommandPaletteDialog の絞り込みロジックと _run_action の動作を検証する。"""
+
+    def _make_bindings(self) -> list[tuple[str, str, str]]:
+        from ore_filer.gui.keymap import DEFAULT_BINDINGS, ACTION_DESCRIPTIONS
+        return [
+            (action, spec, ACTION_DESCRIPTIONS.get(action, ""))
+            for action, spec in DEFAULT_BINDINGS.items()
+        ]
+
+    def test_dialog_shows_all_items_initially(self) -> None:
+        from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog
+        bindings = self._make_bindings()
+        dlg = CommandPaletteDialog(bindings)
+        _app.processEvents()
+        # アイテム数 = バインディング数
+        self.assertEqual(dlg._list.count(), len(bindings))
+        dlg.close()
+
+    def test_filter_by_keyword_reduces_items(self) -> None:
+        from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog
+        bindings = self._make_bindings()
+        dlg = CommandPaletteDialog(bindings)
+        _app.processEvents()
+        dlg._search_edit.setText("コピー")
+        _app.processEvents()
+        self.assertGreater(dlg._list.count(), 0)
+        self.assertLess(dlg._list.count(), len(bindings))
+        dlg.close()
+
+    def test_filter_by_action_name(self) -> None:
+        from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog
+        bindings = self._make_bindings()
+        dlg = CommandPaletteDialog(bindings)
+        _app.processEvents()
+        dlg._search_edit.setText("grep")
+        _app.processEvents()
+        self.assertGreater(dlg._list.count(), 0)
+        # grep アクションが含まれていること
+        from PySide6.QtCore import Qt as _Qt
+        actions = [
+            dlg._list.item(i).data(_Qt.ItemDataRole.UserRole)
+            for i in range(dlg._list.count())
+        ]
+        self.assertIn("grep", actions)
+        dlg.close()
+
+    def test_empty_filter_restores_all(self) -> None:
+        from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog
+        bindings = self._make_bindings()
+        dlg = CommandPaletteDialog(bindings)
+        _app.processEvents()
+        dlg._search_edit.setText("zzz_no_match")
+        _app.processEvents()
+        self.assertEqual(dlg._list.count(), 0)
+        dlg._search_edit.clear()
+        _app.processEvents()
+        self.assertEqual(dlg._list.count(), len(bindings))
+        dlg.close()
+
+    def test_run_action_returns_false_for_unknown(self) -> None:
+        """_run_action は未知のアクション名に対して False を返すこと。"""
+        from ore_filer.gui.main_window import MainWindow
+        with TemporaryDirectory() as tmp:
+            mw = MainWindow(str(tmp), str(tmp))
+            _app.processEvents()
+            result = mw._run_action("__nonexistent_action_xyz__")
+            mw.close()
+        self.assertFalse(result)
+
+    def test_command_palette_key_is_in_default_bindings(self) -> None:
+        from ore_filer.gui.keymap import DEFAULT_BINDINGS
+        self.assertIn("command_palette", DEFAULT_BINDINGS)
+        self.assertEqual(DEFAULT_BINDINGS["command_palette"], "Ctrl+Shift+P")
+
+    def test_no_duplicate_default_bindings(self) -> None:
+        """デフォルトバインディングにキーの重複がないこと（既存テストを再確認）。"""
+        from ore_filer.gui.keymap import DEFAULT_BINDINGS, _parse_spec
+        seen: dict = {}
+        for action, spec in DEFAULT_BINDINGS.items():
+            parsed = _parse_spec(spec)
+            self.assertNotIn(
+                parsed, seen,
+                f"キー重複: {spec!r} が {seen.get(parsed)!r} と {action!r} の両方に割り当て"
+            )
+            seen[parsed] = action
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -565,3 +565,107 @@ class KeymapHelpDialog(QDialog):
             self.accept()
         else:
             super().keyPressEvent(event)
+
+
+# ── コマンドパレット ──────────────────────────────────────────
+
+
+class CommandPaletteDialog(QDialog):
+    """コマンドパレット。キーワード入力でアクションを絞り込み実行する。"""
+
+    def __init__(self, bindings: list[tuple[str, str, str]], parent=None):
+        """bindings: [(action, key_spec, description), ...]"""
+        super().__init__(parent)
+        self.setWindowTitle("コマンドパレット")
+        self.resize(520, 400)
+        self._accepted_action: str = ""
+
+        # 全アイテム: (表示文字列, action)
+        self._all_items: list[tuple[str, str]] = []
+        for action, key_spec, desc in sorted(bindings, key=lambda t: t[2] or t[0]):
+            label = f"{desc or action}  [{key_spec}]" if key_spec else (desc or action)
+            self._all_items.append((label, action))
+
+        self._search_edit = QLineEdit(self)
+        self._search_edit.setPlaceholderText("コマンドを入力... (↑↓で選択、Enter で実行、Esc で閉じる)")
+        self._search_edit.textChanged.connect(self._on_text_changed)
+        self._search_edit.installEventFilter(self)
+
+        self._list = QListWidget(self)
+        self._list.setAlternatingRowColors(True)
+        self._list.itemDoubleClicked.connect(self._on_item_activated)
+        self._populate(self._all_items)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+        layout.addWidget(self._search_edit)
+        layout.addWidget(self._list, 1)
+
+        # フォーカスを検索欄に
+        self._search_edit.setFocus()
+        if self._list.count() > 0:
+            self._list.setCurrentRow(0)
+
+    # ── 内部ヘルパー ──────────────────────────────────────────
+
+    def _populate(self, items: list[tuple[str, str]]) -> None:
+        self._list.clear()
+        for label, action in items:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, action)
+            self._list.addItem(item)
+        if self._list.count() > 0:
+            self._list.setCurrentRow(0)
+
+    def _on_text_changed(self, text: str) -> None:
+        words = text.strip().lower().split()
+        if not words:
+            self._populate(self._all_items)
+            return
+        filtered = [
+            (label, action)
+            for label, action in self._all_items
+            if all(w in (label + " " + action).lower() for w in words)
+        ]
+        self._populate(filtered)
+
+    def _on_item_activated(self, _item) -> None:
+        self._accept_current()
+
+    def _accept_current(self) -> None:
+        item = self._list.currentItem()
+        if item is None:
+            return
+        self._accepted_action = item.data(Qt.ItemDataRole.UserRole) or ""
+        self.accept()
+
+    # ── 公開 API ──────────────────────────────────────────────
+
+    def accepted_action(self) -> str:
+        return self._accepted_action
+
+    # ── キー操作 ─────────────────────────────────────────────
+
+    def eventFilter(self, watched, event) -> bool:
+        """検索欄の ↑↓ Enter をリスト操作に転送する。"""
+        if watched is self._search_edit and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Down:
+                row = min(self._list.currentRow() + 1, self._list.count() - 1)
+                self._list.setCurrentRow(row)
+                return True
+            if key == Qt.Key.Key_Up:
+                row = max(self._list.currentRow() - 1, 0)
+                self._list.setCurrentRow(row)
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._accept_current()
+                return True
+        return super().eventFilter(watched, event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)

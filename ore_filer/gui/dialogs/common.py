@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import datetime
+from pathlib import Path
+
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
     QLabel,
     QListWidget,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -58,3 +66,82 @@ def confirm_list(
 
     dialog.resize(520, 420)
     return dialog.exec() == QDialog.DialogCode.Accepted
+
+
+# ── 衝突解決ダイアログ ─────────────────────────────────────
+
+
+def _file_info_text(path: Path) -> str:
+    """ファイルのサイズと更新日時を短い文字列で返す。"""
+    try:
+        st = path.stat()
+        size = _fmt_file_size(st.st_size)
+        mtime = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y/%m/%d %H:%M")
+        return f"{size}  /  {mtime}"
+    except OSError:
+        return "（情報取得失敗）"
+
+
+class ConflictDialog(QDialog):
+    """1ファイル分の上書き確認ダイアログ。
+
+    chosen_action() → "overwrite" | "skip" | "rename" | "newer"
+    apply_to_all()  → True なら以降すべてに同じ操作を適用
+    exec() → Accepted なら操作を続行、Rejected ならキャンセル（全体中止）
+    """
+
+    def __init__(self, src: Path, dst: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("上書き確認")
+        self.resize(480, 260)
+        self._action = "skip"
+
+        # ── ファイル情報 ──────────────────────────────────────
+        info_box = QGroupBox(f"「{dst.name}」はすでに存在します", self)
+        form = QFormLayout(info_box)
+        form.setContentsMargins(8, 8, 8, 8)
+        form.addRow("コピー元:", QLabel(_file_info_text(src)))
+        form.addRow("コピー先:", QLabel(_file_info_text(dst)))
+
+        # ── アクションボタン ──────────────────────────────────
+        btn_overwrite = QPushButton("上書き(&O)", self)
+        btn_skip      = QPushButton("スキップ(&S)", self)
+        btn_rename    = QPushButton("別名で保存(&R)", self)
+        btn_newer     = QPushButton("新しい方のみ(&N)", self)
+
+        btn_overwrite.clicked.connect(lambda: self._choose("overwrite"))
+        btn_skip.clicked.connect(lambda: self._choose("skip"))
+        btn_rename.clicked.connect(lambda: self._choose("rename"))
+        btn_newer.clicked.connect(lambda: self._choose("newer"))
+
+        btn_row = QHBoxLayout()
+        for btn in (btn_overwrite, btn_skip, btn_rename, btn_newer):
+            btn_row.addWidget(btn)
+
+        # ── 以降すべてに適用 ─────────────────────────────────
+        self._apply_all_cb = QCheckBox("以降すべてに同じ操作を適用する", self)
+
+        # ── キャンセル ───────────────────────────────────────
+        cancel_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel, self)
+        cancel_box.rejected.connect(self.reject)
+
+        # ── レイアウト ───────────────────────────────────────
+        layout = QVBoxLayout(self)
+        layout.addWidget(info_box)
+        layout.addLayout(btn_row)
+        layout.addWidget(self._apply_all_cb)
+        layout.addWidget(cancel_box)
+
+        # デフォルトフォーカスをスキップに
+        btn_skip.setDefault(True)
+        btn_skip.setFocus()
+
+    def _choose(self, action: str) -> None:
+        self._action = action
+        self.accept()
+
+    def chosen_action(self) -> str:
+        return self._action
+
+    def apply_to_all(self) -> bool:
+        return self._apply_all_cb.isChecked()

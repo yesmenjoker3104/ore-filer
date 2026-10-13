@@ -70,6 +70,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "move":             "移動 / 新規フォルダ",
     "delete":           "完全削除",
     "trash":            "ごみ箱へ移動",
+    "undo":             "元に戻す（Undo）",
     "rename":           "名前の変更",
     "bulk_rename":      "一括リネーム（選択項目）",
     "history":          "フォルダ履歴",
@@ -93,7 +94,6 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "context_menu":     "シェルコンテキストメニュー",
     "file_info":        "ファイル情報",
     "folder_size":      "フォルダサイズ計算",
-    "view_text":        "テキストビューア",
     "open_editor":      "外部エディタで開く",
     "set_editor":       "エディタを設定",
     "terminal":         "ターミナルを開く",
@@ -111,6 +111,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "font_larger":      "フォントを大きく",
     "font_smaller":     "フォントを小さく",
     "keymap_help":      "キー一覧を表示",
+    "command_palette":  "コマンドパレット",
     "update_check":     "バージョン情報 / アップデートを確認",
     "quit":             "アプリを終了",
     "expand_tree":      "ツリーを展開/折りたたむ",
@@ -122,6 +123,11 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "diff":             "左右ペインのファイルを差分表示",
     "git_menu":         "Git メニュー",
     "remote_connect":   "リモート（SFTP）に接続／接続中なら切断",
+    "toggle_preview":   "プレビューモード切替",
+    "tab_new":          "新しいタブを開く",
+    "tab_close":        "現在のタブを閉じる",
+    "tab_next":         "次のタブへ",
+    "tab_prev":         "前のタブへ",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -136,6 +142,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "move":             "M",
     "delete":           "K",
     "trash":            "Shift+K",
+    "undo":             "Ctrl+Z",
     "rename":           "R",
     "bulk_rename":      "Shift+R",
     "history":          "H",
@@ -159,7 +166,6 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "context_menu":     "Backslash",
     "file_info":        "I",
     "folder_size":      "Shift+I",
-    "view_text":        "V",
     "open_editor":      "E",
     "set_editor":       "Shift+E",
     "terminal":         "W",
@@ -177,6 +183,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "font_larger":      "Plus",
     "font_smaller":     "Minus",
     "keymap_help":      "Question",
+    "command_palette":  "Ctrl+Shift+P",
     "update_check":     "Ctrl+Shift+U",
     "remote_connect":   "Ctrl+Shift+S",
     "quit":             "Q",
@@ -188,6 +195,11 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "toggle_hidden":    "Shift+H",
     "diff":             "Shift+X",
     "git_menu":         "G",
+    "toggle_preview":   "Ctrl+Q",
+    "tab_new":          "Ctrl+T",
+    "tab_close":        "Ctrl+W",
+    "tab_next":         "Ctrl+PageDown",
+    "tab_prev":         "Ctrl+PageUp",
 }
 
 

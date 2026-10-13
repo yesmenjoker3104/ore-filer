@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
     QUrl,
+    Signal,
 )
 from PySide6.QtGui import QColor, QDrag, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -98,6 +99,8 @@ class FileItemDelegate(QStyledItemDelegate):
 
 
 class FileTreeView(QTreeView):
+    current_changed = Signal()  # カーソル位置が変わったとき emit
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.cursor_visible = True
@@ -221,7 +224,7 @@ class FileTreeView(QTreeView):
 
     def currentChanged(self, current: QModelIndex, previous: QModelIndex) -> None:
         super().currentChanged(current, previous)
-
+        self.current_changed.emit()
         self._update_row(previous)
         self._update_row(current)
 

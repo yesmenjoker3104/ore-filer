@@ -34,12 +34,16 @@ from ore_filer.gui.dialogs.viewers import (
 	SVG_EXTENSIONS,
 	XML_EXTENSIONS,
 )
+from ore_filer.services.office_text import OFFICE_EXTENSIONS
+from ore_filer.services.undo import UndoEntry, UndoRecord, UndoStack
 from ore_filer.gui.keymap import KeyMap
 from ore_filer.gui.main_window_archive import MainWindowArchiveMixin
 from ore_filer.gui.main_window_file_ops import MainWindowFileOpsMixin
 from ore_filer.gui.main_window_git import MainWindowGitMixin
 from ore_filer.gui.main_window_keys import MainWindowKeysMixin
+from ore_filer.gui.main_window_preview import MainWindowPreviewMixin
 from ore_filer.gui.main_window_remote import MainWindowRemoteMixin
+from ore_filer.gui.main_window_tabs import MainWindowTabsMixin
 from ore_filer.gui.main_window_update import MainWindowUpdateMixin
 from ore_filer.gui.main_window_viewers import MainWindowViewersMixin
 from ore_filer.gui.pane import PaneWidget
@@ -82,7 +86,7 @@ def _fmt_size_status(size: int) -> str:
 	return f"{size / (1024 ** 3):.1f} GB"
 
 
-class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOpsMixin, MainWindowViewersMixin, MainWindowGitMixin, MainWindowKeysMixin, MainWindowUpdateMixin, QMainWindow):
+class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOpsMixin, MainWindowViewersMixin, MainWindowGitMixin, MainWindowKeysMixin, MainWindowPreviewMixin, MainWindowTabsMixin, MainWindowUpdateMixin, QMainWindow):
 	def __init__(
 		self,
 		left_path: str | Path,
@@ -94,13 +98,11 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		self.setWindowTitle(f"Ore Filer v{__version__}")
 		self.resize(1200, 700)
 		shared_history = history if history is not None else []
-		self.left_pane = PaneWidget(left_path, history=shared_history)
-		self.right_pane = PaneWidget(right_path, history=shared_history)
 
-		self.panes = [self.left_pane, self.right_pane]
 		self.active_pane_index = 0
 		self._archive_thread: QThread | None = None
 		self._file_op_thread: FileOperationThread | None = None
+		self._undo_stack = UndoStack()
 		self._dir_size_thread: DirSizeThread | None = None
 		self._remote_connect_thread: RemoteConnectThread | None = None
 		self._remote_target_pane: PaneWidget | None = None
@@ -110,41 +112,22 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		self._keymap_watcher = None
 		self._setup_keymap_watcher()
 
-		self.splitter = QSplitter(Qt.Orientation.Horizontal)
-		self.splitter.addWidget(self.left_pane)
-		self.splitter.addWidget(self.right_pane)
-		self.splitter.setSizes([600, 600])
-
-		self.setCentralWidget(self.splitter)
-
-		for pane in self.panes:
-			pane.file_view.installEventFilter(self)
-			pane.file_view.viewport().installEventFilter(self)
-
+		# ブックマーク（_setup_pane が参照するため先に初期化）
 		self._bookmarks: list[str] = load_bookmarks()
 		self._bookmark_set: set[str] = {b.casefold() for b in self._bookmarks}
-		for pane in self.panes:
-			pane.bookmarks = self._bookmark_set
-			pane.selection_changed.connect(self._update_status_bar)
-			pane.path_changed.connect(self._update_status_bar)
 
-		for pane in self.panes:
-			pane.files_dropped.connect(self._on_files_dropped)
-			pane.remote_error.connect(self._show_remote_error)
-
-		self._update_active_pane()
-		# 隠しファイル表示設定を復元（デフォルト: 表示）
-		_cfg = load_config()
-		_show_hidden = _cfg.get("show_hidden", True)
-		for pane in self.panes:
-			pane.set_show_hidden(_show_hidden)
-
+		# Git スレッド管理（_setup_pane が path_changed に接続するため先に初期化）
 		self._git_status_threads: dict[int, GitStatusThread] = {}
 		self._git_windows: dict = {}
-		for pane in self.panes:
-			pane.path_changed.connect(
-				lambda _path, p=pane: self._refresh_git_status(p)
-			)
+
+		# タブ＋ペイン生成（_setup_pane も内部で呼ばれる）
+		self.splitter = QSplitter(Qt.Orientation.Horizontal)
+		self._setup_tabs(left_path, right_path, shared_history)
+		self._setup_preview()  # _left_tabs/_right_tabs を splitter に追加
+		self.splitter.setSizes([600, 600])
+		self.setCentralWidget(self.splitter)
+
+		self._update_active_pane()
 
 		self._last_update_check: str = ""
 		self._update_check_thread: UpdateCheckThread | None = None
@@ -153,6 +136,18 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		# 起動時に両ペインの Git 状態を取得
 		for pane in self.panes:
 			self._refresh_git_status(pane)
+
+	@property
+	def left_pane(self) -> PaneWidget:
+		return self._left_tabs.currentWidget()
+
+	@property
+	def right_pane(self) -> PaneWidget:
+		return self._right_tabs.currentWidget()
+
+	@property
+	def panes(self) -> list[PaneWidget]:
+		return [self._left_tabs.currentWidget(), self._right_tabs.currentWidget()]
 
 	@property
 	def active_pane(self) -> PaneWidget:
@@ -175,6 +170,14 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 	def closeEvent(self, event) -> None:
 		geometry = base64.b64encode(bytes(self.saveGeometry())).decode()
 		splitter = base64.b64encode(bytes(self.splitter.saveState())).decode()
+		left_tab_paths = [
+			str(self._left_tabs.widget(i).current_path)
+			for i in range(self._left_tabs.count())
+		]
+		right_tab_paths = [
+			str(self._right_tabs.widget(i).current_path)
+			for i in range(self._right_tabs.count())
+		]
 		save_session(
 			self.left_pane.history_paths(),
 			left_path=str(self.left_pane.current_path),
@@ -183,6 +186,10 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 			splitter=splitter,
 			last_update_check=self._last_update_check,
 			font_size=self.left_pane._font_size,
+			left_tabs=left_tab_paths,
+			right_tabs=right_tab_paths,
+			left_tab_index=self._left_tabs.currentIndex(),
+			right_tab_index=self._right_tabs.currentIndex(),
 		)
 		super().closeEvent(event)
 
@@ -349,6 +356,9 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		elif path.suffix.casefold() in SVG_EXTENSIONS:
 			self._open_svg_viewer(path)
 			return True
+		elif path.suffix.casefold() in OFFICE_EXTENSIONS:
+			self._open_office_viewer(path)
+			return True
 		elif path.suffix.casefold() in PLAINTEXT_EXTENSIONS:
 			self._open_plaintext_viewer(path)
 			return True
@@ -437,7 +447,7 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		geo = self.geometry()
 		x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
 		min_w = max(self.minimumWidth(), 200)
-		min_h = max(self.MinimumHeight(), 150)
+		min_h = max(self.minimumHeight(), 150)
 		step = self._RESIZE_STEP
 		if key == Qt.Key.Key_Right:
 			w = max(min_w, w + step)
@@ -470,6 +480,7 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 	def _switch_pane(self) -> None:
 		self.active_pane_index = 1 - self.active_pane_index
 		self._update_active_pane()
+		self._update_preview_visibility()
 
 	def _update_active_pane(self) -> None:
 		active_pane = self.active_pane
@@ -641,10 +652,16 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		names_preview = [f"{p.name}  →  {n}" for p, n in pairs]
 		if not confirm_list(self, "一括リネーム確認", "次の項目をリネームしますか？", names_preview):
 			return
+		undo_record = UndoRecord(
+			kind="rename",
+			label=f"{len(pairs)}件を一括リネーム",
+			entries=[UndoEntry(current=old.parent / new, original=old) for old, new in pairs],
+		)
 		self._start_file_operation(
-			lambda p=pairs: rename_paths(p),
+			lambda cb, p=pairs: rename_paths(p),
 			"リネームしています...",
 			f"{len(pairs)}件をリネームしました。",
+			on_done=lambda _rec=undo_record: self._undo_stack.push(_rec),
 		)
 
 	# ── 左右ペイン比較選択 ────────────────────────────────────
@@ -792,6 +809,11 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		except Exception as e:  # noqa: BLE001
 			QMessageBox.critical(self, "エラー", f"ファイルの作成に失敗しました:\n{e}")
 			return
+		self._undo_stack.push(UndoRecord(
+			kind="create",
+			label=f"ファイルを作成: {name}",
+			entries=[UndoEntry(current=new_path, original=None)],
+		))
 		self.active_pane.reload()
 		self.active_pane._pending_focus = name
 		config = load_config()

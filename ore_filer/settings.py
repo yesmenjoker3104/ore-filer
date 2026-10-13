@@ -41,6 +41,12 @@ def load_session() -> dict:
 		v = data.get(key, default)
 		return v if isinstance(v, int) else default
 
+	def _str_list(key: str) -> list[str]:
+		v = data.get(key, [])
+		if not isinstance(v, list):
+			return []
+		return [item for item in v if isinstance(item, str)]
+
 	return {
 		"history": [value for value in values if isinstance(value, str)][:MAX_HISTORY],
 		"left_path": _str("left_path"),
@@ -49,6 +55,10 @@ def load_session() -> dict:
 		"splitter": _str("splitter"),
 		"last_update_check": _str("last_update_check"),
 		"font_size": _int("font_size", 0),
+		"left_tabs": _str_list("left_tabs"),
+		"right_tabs": _str_list("right_tabs"),
+		"left_tab_index": _int("left_tab_index", 0),
+		"right_tab_index": _int("right_tab_index", 0),
 	}
 
 
@@ -61,6 +71,10 @@ def save_session(
 	splitter: str = "",
 	last_update_check: str = "",
 	font_size: int = 0,
+	left_tabs: list[str] | None = None,
+	right_tabs: list[str] | None = None,
+	left_tab_index: int = 0,
+	right_tab_index: int = 0,
 ) -> None:
 	path = session_file()
 	path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,6 +86,10 @@ def save_session(
 		"splitter": splitter,
 		"last_update_check": last_update_check,
 		"font_size": font_size,
+		"left_tabs": left_tabs if left_tabs is not None else ([left_path] if left_path else []),
+		"right_tabs": right_tabs if right_tabs is not None else ([right_path] if right_path else []),
+		"left_tab_index": left_tab_index,
+		"right_tab_index": right_tab_index,
 	}
 	temporary_path = path.with_suffix(".tmp")
 	with temporary_path.open("w", encoding="utf-8") as file:

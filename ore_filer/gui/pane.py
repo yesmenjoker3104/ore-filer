@@ -47,6 +47,7 @@ from ore_filer.services.remote_service import RemoteSession
 class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
     path_changed = Signal(str)
     selection_changed = Signal()
+    current_item_changed = Signal()  # カーソル位置変化（プレビュー用）
     files_dropped = Signal(list, str, bool)  # (paths, destination, is_move)
     remote_error = Signal(str)
 
@@ -118,6 +119,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         )
         self.file_view.setAlternatingRowColors(True)
         self.file_view.doubleClicked.connect(self._on_double_clicked)
+        self.file_view.current_changed.connect(self.current_item_changed)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)

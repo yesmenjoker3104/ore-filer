@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 
+from ore_filer.services.office_text import OFFICE_EXTENSIONS, extract_office_text
+
 
 def find_paths(
 	root: str | Path,
@@ -105,6 +107,15 @@ def grep_files(
             if is_cancelled is not None and is_cancelled():
                 return matches
             file_path = Path(current_root) / name
+            # Office 文書（xlsx / docx / pptx 等）は専用の抽出処理を使う
+            if file_path.suffix.casefold() in OFFICE_EXTENSIONS:
+                office_text = extract_office_text(file_path)
+                if office_text:
+                    for lineno, line in enumerate(office_text.splitlines(), 1):
+                        if _match(line):
+                            matches.append(GrepMatch(file_path, lineno, line.rstrip()))
+                continue
+
             try:
                 raw = file_path.read_bytes()
             except OSError:

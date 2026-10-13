@@ -112,11 +112,13 @@ class ExtractArchiveThread(QThread):
 		self,
 		archive_paths: list[Path],
 		destination: Path,
+		password: str | None = None,
 		parent=None,
 	):
 		super().__init__(parent)
 		self.archive_paths = archive_paths
 		self.destination = destination
+		self.password = password
 
 	def run(self) -> None:
 		extracted_count = 0
@@ -124,7 +126,7 @@ class ExtractArchiveThread(QThread):
 		total = len(self.archive_paths)
 		for i, archive_path in enumerate(self.archive_paths):
 			try:
-				extract_archive(archive_path, self.destination)
+				extract_archive(archive_path, self.destination, password=self.password)
 			except Exception as error:  # noqa: BLE001
 				errors.append(f"{archive_path.name}: {error}")
 			else:
