@@ -153,7 +153,7 @@ class ConflictDialog(QDialog):
 
 
 class MultiLineInputDialog(QDialog):
-    """複数行テキスト入力ダイアログ。Ctrl+Enter で確定できる。"""
+    """複数行テキスト入力ダイアログ。Enter で確定し、Shift+Enter で改行する。"""
 
     def __init__(self, title: str, label: str, parent=None) -> None:
         super().__init__(parent)
@@ -179,9 +179,9 @@ class MultiLineInputDialog(QDialog):
         return self._edit.toPlainText()
 
     def eventFilter(self, watched, event) -> bool:
-        if watched is self._edit and event.type() == QEvent.Type.KeyPress:
-            if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-                    and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
-                self.accept()
-                return True
+        if (watched is self._edit and event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            self.accept()
+            return True
         return super().eventFilter(watched, event)

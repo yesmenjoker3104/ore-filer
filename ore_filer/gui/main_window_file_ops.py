@@ -211,7 +211,7 @@ class MainWindowFileOpsMixin:
 	def create_folder(self) -> None:
 		dlg = MultiLineInputDialog(
 			"新規フォルダの作成",
-			"フォルダ名（1行1フォルダ、Ctrl+Enter で確定）:",
+			"フォルダ名（1行1フォルダ、Enter で確定、Shift+Enter で改行）:",
 			self,
 		)
 		if dlg.exec() != QDialog.DialogCode.Accepted:
