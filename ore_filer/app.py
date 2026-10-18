@@ -27,6 +27,13 @@ def _log_unhandled_exception(exc_type, exc, tb) -> None:
         pass
 
 
+def _icon_path() -> Path:
+    # PyInstaller の onefile では entry script が展開先の直下に置かれるため、__file__ 基準だと icon.ico が見つからない
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "ore_filer" / "icon.ico"
+    return Path(__file__).with_name("icon.ico")
+
+
 def _set_windows_app_user_model_id() -> None:
     if sys.platform != "win32":
         return
@@ -70,7 +77,7 @@ def main() -> int:
     cleanup_old_exe()
     _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
-    icon = QIcon(str(Path(__file__).with_name("icon.ico")))
+    icon = QIcon(str(_icon_path()))
     app.setWindowIcon(icon)
     session = load_session()
     history = session["history"]
