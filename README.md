@@ -555,7 +555,7 @@ remote_connect = "Ctrl+Shift+S"
 GUIとCLIは同じサービス層を利用する。CLIはGUIのペイン状態に依存せず、パスを明示的に受け取る。
 
 ```powershell
-ore-filer list C:\Users\SatoshiｰOotomo\Downloads
+ore-filer list C:\Users\<ユーザー名>\Downloads
 ore-filer copy "C:\work\a.txt" "D:\backup"
 ore-filer move "C:\work\a.txt" "D:\archive"
 ore-filer rename "C:\work\a.txt" "b.txt"
