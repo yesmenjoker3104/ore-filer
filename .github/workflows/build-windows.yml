@@ -59,7 +59,7 @@ jobs:
           $Package = "package"
           New-Item -ItemType Directory -Force "$Package/app-launcher" | Out-Null
           Copy-Item "dist/ore-filer.exe" "$Package/ore-filer.exe"
-          Copy-Item "app-launcher/dist/app-launcher/app-launcher.exe" "$Package/app-launcher/app-launcher.exe"
+          Copy-Item "app-launcher/dist/AppLauncherCli.exe" "$Package/app-launcher/app-launcher.exe"
           Compress-Archive -Path "$Package/*" -DestinationPath "ore-filer-Windows.zip"
 
       - name: Upload executable and zip
