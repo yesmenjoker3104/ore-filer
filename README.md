@@ -555,42 +555,39 @@ remote_connect = "Ctrl+Shift+S"
 GUIとCLIは同じサービス層を利用する。CLIはGUIのペイン状態に依存せず、パスを明示的に受け取る。
 
 ```powershell
-ore-filer list C:\Users\<ユーザー名>\Downloads
-ore-filer copy "C:\work\a.txt" "D:\backup"
-ore-filer move "C:\work\a.txt" "D:\archive"
-ore-filer rename "C:\work\a.txt" "b.txt"
-ore-filer mkdir "C:\work\new-folder"
-ore-filer delete "C:\work\a.txt" --recycle-bin
-ore-filer search "C:\work" "*.py"
+# 仮想環境から実行する場合
+.\.venv\Scripts\python.exe -m ore_filer.cli list C:\Users\<ユーザー名>\Downloads
+.\.venv\Scripts\python.exe -m ore_filer.cli copy "C:\work\a.txt" "D:\backup"
+.\.venv\Scripts\python.exe -m ore_filer.cli move "C:\work\a.txt" "D:\archive"
+.\.venv\Scripts\python.exe -m ore_filer.cli rename "C:\work\a.txt" "b.txt"
+.\.venv\Scripts\python.exe -m ore_filer.cli delete "C:\work\a.txt" --yes
+.\.venv\Scripts\python.exe -m ore_filer.cli search "C:\work" "*.py"
 ```
 
-assist-chat連携用にJSON出力を提供する。
+`pip install -e .` 後は `ore-filer` コマンドでも実行できます。`--format`には
+`text`、`json`、`both`を指定できます。JSON出力はassist-chatなどの機械連携に利用できます。
 
 ```powershell
-ore-filer copy "C:\work\a.txt" "D:\backup" --json
+ore-filer --format json copy "C:\work\a.txt" "D:\backup"
+ore-filer --format both list "C:\work"
 ```
 
 ```json
-{
-  "success": true,
-  "operation": "copy",
-  "sources": ["C:\\work\\a.txt"],
-  "destination": "D:\\backup",
-  "results": [
-    {
-      "source": "C:\\work\\a.txt",
-      "target": "D:\\backup\\a.txt",
-      "status": "completed"
-    }
-  ]
-}
+[
+  {
+    "path": "D:\\backup\\a.txt",
+    "name": "a.txt",
+    "is_dir": false,
+    "size": 123
+  }
+]
 ```
 
 CLIの方針:
 
-- `--json`: 機械可読な結果を標準出力へ出す
-- `--dry-run`: 実際には変更せず実行内容だけ確認する
-- `--yes`: 削除や上書きを明示的に許可する
+- `--format json`: 機械可読な結果を標準出力へ出す。`both`ならテキストも出す
+- `--yes`: 削除を実行するために必須
+- `--overwrite`: コピー・移動時の上書きを明示的に許可する
 - 成功・失敗を終了コードで通知する
 - 通常の結果は標準出力、エラーは標準エラー出力へ出す
 - 削除・上書きは暗黙に実行しない

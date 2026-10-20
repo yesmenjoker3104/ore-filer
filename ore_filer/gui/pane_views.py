@@ -106,6 +106,7 @@ class FileTreeView(QTreeView):
         self.cursor_visible = True
         self._drag_start_pos: QPoint | None = None
         self._drag_start_index: QModelIndex | None = None
+        self.setUniformRowHeights(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
 
@@ -285,6 +286,7 @@ class FileFilterProxyModel(QSortFilterProxyModel):
         self._query = ""
         self._root_path: Path | None = None
         self._sort_mode = SORT_NAME
+        self.setDynamicSortFilter(False)
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
 
     def set_root_path(self, path: str | Path) -> None:

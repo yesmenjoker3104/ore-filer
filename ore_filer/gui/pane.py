@@ -94,6 +94,12 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self._select_anchor: int | None = None
         self._cursor_memory: dict[Path, str] = {}
         self._pending_focus: str | None = None
+        self._sort_timer = QTimer(self)
+        self._sort_timer.setSingleShot(True)
+        self._sort_timer.setInterval(120)
+        self._sort_timer.timeout.connect(self._sort_file_model)
+        self.model.rowsInserted.connect(self._schedule_file_sort)
+        self.model.rowsRemoved.connect(self._schedule_file_sort)
 
         # Git 状態（casefolded パス文字列 → XY コード）
         self.git_status: dict[str, str] = {}
@@ -184,7 +190,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         proxy_root = self.filter_model.mapFromSource(root_index)
         if proxy_root.isValid():
             self.file_view.setRootIndex(proxy_root)
-        self.filter_model.sort(0, self._sort_order)
+        self._schedule_file_sort()
         self.file_view.selectionModel().clearSelection()
         self.path_changed.emit(str(path))
 
@@ -226,11 +232,24 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self._sort_mode = mode
         self._sort_order = order
         self.filter_model.set_sort_mode(mode)
-        self.filter_model.sort(0, order)
+        self._sort_file_model()
         if self._search_results is not None:
             self.search_filter_model.set_sort_mode(mode)
             self.search_filter_model.sort(0, order)
         self._update_path_label()
+
+    def _schedule_file_sort(self, *args) -> None:
+        if not self._sort_timer.isActive():
+            self._sort_timer.start()
+
+    def _sort_file_model(self) -> None:
+        if self.is_archive_view() or self.is_remote_view():
+            return
+        self.file_view.setUpdatesEnabled(False)
+        try:
+            self.filter_model.sort(0, self._sort_order)
+        finally:
+            self.file_view.setUpdatesEnabled(True)
 
     def sort_mode(self) -> str:
         return self._sort_mode
@@ -726,6 +745,11 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
             self.file_view.scrollTo(first)
 
     def _on_directory_loaded(self, loaded_path: str) -> None:
+        try:
+            if Path(loaded_path).resolve() == self.current_path:
+                self._sort_file_model()
+        except OSError:
+            pass
         if self._pending_focus is None:
             return
         try:

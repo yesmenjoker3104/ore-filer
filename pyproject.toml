@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ore-filer"
-version = "0.5.2"
+version = "0.6.0"
 description = "Windows向けキーボード操作中心の2画面ファイラー"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,6 +16,9 @@ dependencies = [
     "keyring>=25,<27",
     "paramiko>=3.4,<4",
 ]
+
+[project.scripts]
+ore-filer = "ore_filer.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
