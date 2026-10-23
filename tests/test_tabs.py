@@ -41,6 +41,43 @@ def test_panes_returns_two_elements(tmp_path):
     w.close()
 
 
+def test_all_columns_are_draggable(tmp_path):
+    """全列はヘッダー境界のドラッグで幅を変更できる。"""
+    from PySide6.QtWidgets import QHeaderView
+
+    from ore_filer.gui.main_window import MainWindow
+
+    w = MainWindow(str(tmp_path), str(tmp_path))
+    header = w.left_pane.file_view.header()
+    for column in range(header.count()):
+        assert header.sectionResizeMode(column) == QHeaderView.ResizeMode.Interactive
+    w.close()
+
+
+def test_fit_name_column_widens_to_filename(tmp_path):
+    """キーボード操作でName列がファイル名の幅まで広がる。"""
+    from ore_filer.gui.pane import PaneWidget
+
+    long_name = "a_very_long_file_name_for_column_fit_test_" * 2 + ".txt"
+    (tmp_path / long_name).write_text("x", encoding="utf-8")
+    pane = PaneWidget(tmp_path)
+    pane.resize(400, 300)
+    pane.show()
+    _app.processEvents()
+
+    pane.file_view.setColumnWidth(0, 40)
+    pane.fit_name_column()
+    assert pane.file_view.columnWidth(0) > 40
+    pane.close()
+
+
+def test_fit_name_column_binding():
+    """Name列フィットは Ctrl+Equal に割り当てられている。"""
+    from ore_filer.gui.keymap import DEFAULT_BINDINGS
+
+    assert DEFAULT_BINDINGS["fit_name_column"] == "Ctrl+Equal"
+
+
 def test_initial_tab_count(tmp_path):
     """起動直後、左右それぞれタブが 1 枚。"""
     from ore_filer.gui.main_window import MainWindow
@@ -127,6 +164,16 @@ def test_tab_actions_in_keymap():
     assert "tab_close" in bindings
     assert "tab_next" in bindings
     assert "tab_prev" in bindings
+
+
+def test_tab_navigation_uses_shifted_arrows():
+    """タブ移動は Shift+左右矢印に割り当てられる。"""
+    from ore_filer.gui.keymap import DEFAULT_BINDINGS, _parse_spec
+
+    assert DEFAULT_BINDINGS["tab_next"] == "Shift+Right"
+    assert DEFAULT_BINDINGS["tab_prev"] == "Shift+Left"
+    assert _parse_spec(DEFAULT_BINDINGS["tab_next"])[0].name == "Key_Right"
+    assert _parse_spec(DEFAULT_BINDINGS["tab_prev"])[0].name == "Key_Left"
 
 
 # ── settings round-trip ───────────────────────────────────────

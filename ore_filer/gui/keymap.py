@@ -128,6 +128,7 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "tab_close":        "現在のタブを閉じる",
     "tab_next":         "次のタブへ",
     "tab_prev":         "前のタブへ",
+    "fit_name_column":  "Name列をファイル名に合わせて広げる",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -198,8 +199,9 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "toggle_preview":   "Ctrl+Q",
     "tab_new":          "Ctrl+T",
     "tab_close":        "Ctrl+W",
-    "tab_next":         "Ctrl+PageDown",
-    "tab_prev":         "Ctrl+PageUp",
+    "tab_next":         "Shift+Right",
+    "tab_prev":         "Shift+Left",
+    "fit_name_column":  "Ctrl+Equal",
 }
 
 

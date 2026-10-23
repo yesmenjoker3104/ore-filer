@@ -113,6 +113,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self.file_view.setModel(self.filter_model)
         self._reconnect_selection_signal()
         self.file_view.setColumnWidth(0, 300)
+        self._make_columns_resizable()
         self.file_view.setSelectionMode(
             QAbstractItemView.SelectionMode.NoSelection
         )
@@ -381,10 +382,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self.file_view.setRootIndex(QModelIndex())
         self.search_filter_model.sort(0, self._sort_order)
         self.file_view.selectionModel().clearSelection()
-        header = self.file_view.header()
-        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, header.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, header.ResizeMode.ResizeToContents)
+        self._make_columns_resizable()
         if self.search_filter_model.rowCount() > 0:
             self.file_view.setCurrentIndex(self.search_filter_model.index(0, 0))
         self._update_path_label()
@@ -399,8 +397,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self.file_view.setRootIndex(QModelIndex())
         self.file_view.setModel(self.filter_model)
         self._reconnect_selection_signal()
-        header = self.file_view.header()
-        header.setSectionResizeMode(0, header.ResizeMode.Stretch)
+        self._make_columns_resizable()
         root_index = self.filter_model.mapFromSource(
             self.model.index(str(self.current_path))
         )
@@ -408,6 +405,16 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
             self.file_view.setRootIndex(root_index)
         self.file_view.selectionModel().clearSelection()
         self._update_path_label()
+
+    def _make_columns_resizable(self) -> None:
+        """全列をヘッダー境界のドラッグで変更できるようにする。"""
+        header = self.file_view.header()
+        for column in range(header.count()):
+            header.setSectionResizeMode(column, header.ResizeMode.Interactive)
+
+    def fit_name_column(self) -> None:
+        """Name列の幅をファイル名の長さに合わせて広げる（キーボード操作用）。"""
+        self.file_view.resizeColumnToContents(0)
 
     def has_search_results(self) -> bool:
         return self._search_results is not None

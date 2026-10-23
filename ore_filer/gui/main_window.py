@@ -122,6 +122,8 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 
 		# タブ＋ペイン生成（_setup_pane も内部で呼ばれる）
 		self.splitter = QSplitter(Qt.Orientation.Horizontal)
+		self.splitter.setChildrenCollapsible(False)
+		self.splitter.setHandleWidth(8)
 		self._setup_tabs(left_path, right_path, shared_history)
 		self._setup_preview()  # _left_tabs/_right_tabs を splitter に追加
 		self.splitter.setSizes([600, 600])

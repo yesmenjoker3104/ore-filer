@@ -110,14 +110,14 @@ def _archive_member_metadata(
                                 "アーカイブのパスワードが正しくありません。"
                             ) from error
 
-                for info in infos:
-                    name = _normalize_member_name(info.filename)
+                for raw_name, info in zip(_zip_entry_names(archive_path), infos):
+                    name = _normalize_member_name(raw_name)
                     if not name:
                         continue
                     mode = (info.external_attr >> 16) & 0o170000
                     if mode == stat.S_IFLNK:
                         raise ValueError(
-                            f"リンクを含むアーカイブは閲覧できません: {info.filename}"
+                            f"リンクを含むアーカイブは閲覧できません: {raw_name}"
                         )
                     yield name, info.is_dir(), info.file_size
             return
@@ -274,8 +274,8 @@ def _extract_selected_archive_members(
             if password:
                 archive.setpassword(password.encode("utf-8"))
             infos = {
-                _normalize_member_name(info.filename): info
-                for info in archive.infolist()
+                _normalize_member_name(name): info
+                for name, info in zip(_zip_entry_names(archive_path), archive.infolist())
             }
             for member_path in selected_members:
                 target = _safe_extract_path(destination, member_path)
@@ -498,6 +498,22 @@ def create_archive(
     return archive_path
 
 
+def _zip_entry_names(archive_path: Path) -> list[str]:
+    """ZIP のエントリ名を、pyzipper と同じ順序で正しく取得する。
+
+    pyzipper は Unicode パス拡張(0x7075)を読まないため、名前は標準 zipfile から取る。
+    UTF-8 フラグも拡張もない ZIP は、Windows の既定コードページ cp932 として読む。
+    """
+    names: list[str] = []
+    with zipfile.ZipFile(archive_path) as zf:
+        for info in zf.infolist():
+            if info.flag_bits & 0x800 or info.filename != info.orig_filename:
+                names.append(info.filename)
+            else:
+                names.append(info.orig_filename.encode("cp437").decode("cp932", errors="replace"))
+    return names
+
+
 def _safe_extract_path(destination: Path, member_name: str) -> Path:
     normalized_name = member_name.replace("\\", "/")
     if not normalized_name or normalized_name in {".", "./"}:
@@ -542,11 +558,11 @@ def _extract_zip(archive_path: Path, destination: Path, password: str | None = N
     with pyzipper.AESZipFile(archive_path, mode="r") as archive:
         if password:
             archive.setpassword(password.encode("utf-8"))
-        for info in archive.infolist():
-            target = _safe_extract_path(destination, info.filename)
+        for raw_name, info in zip(_zip_entry_names(archive_path), archive.infolist()):
+            target = _safe_extract_path(destination, raw_name)
             mode = (info.external_attr >> 16) & 0o170000
             if mode == stat.S_IFLNK:
-                raise ValueError(f"リンクを含むアーカイブは展開できません: {info.filename}")
+                raise ValueError(f"リンクを含むアーカイブは展開できません: {raw_name}")
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue

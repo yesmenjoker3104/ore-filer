@@ -212,6 +212,8 @@ class MainWindowKeysMixin:
 			self.tab_next()
 		elif action == "tab_prev":
 			self.tab_prev()
+		elif action == "fit_name_column":
+			self.active_pane.fit_name_column()
 		elif action == "remote_connect":
 			if self.active_pane.is_remote_view():
 				self.disconnect_remote()
