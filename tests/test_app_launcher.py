@@ -30,8 +30,11 @@ def test_open_unknown_application_raises_error() -> None:
 
 
 JAPANESE_PATH = r"C:\Users\tester\OneDrive\ドキュメント\My Games\Game.exe"
-# 旧 app-launcher と同じく ensure_ascii=False で UTF-8 の日本語を出力する子プロセス
-ECHO_JSON_SCRIPT = "import json, sys; print(json.dumps({'ok': True, 'path': sys.argv[1]}, ensure_ascii=False))"
+# app-launcher と同じく UTF-8 のバイト列を直接出力する子プロセス（親の PYTHONIOENCODING の影響を受けない）
+ECHO_JSON_SCRIPT = (
+    "import json, sys; "
+    "sys.stdout.buffer.write(json.dumps({'ok': True, 'path': sys.argv[1]}, ensure_ascii=False).encode('utf-8'))"
+)
 
 
 @pytest.mark.parametrize("parent_stdio_encoding", ["utf-8", "cp932"])

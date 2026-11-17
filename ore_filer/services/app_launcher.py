@@ -58,10 +58,10 @@ def _run_cli(exe: Path, args: list[str]) -> dict:
     """app-launcher を引数リストで実行し、JSON 応答を返す。失敗時は例外にする。"""
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
+        # app-launcher は UTF-8 で出力するため、親プロセスのロケール（cp932 等）に依らず明示的にデコードする
         proc = subprocess.run(
             [str(exe), *args],
             capture_output=True,
-            text=True,
             creationflags=creationflags,
             timeout=_TIMEOUT_SECONDS,
             check=False,
@@ -69,10 +69,12 @@ def _run_cli(exe: Path, args: list[str]) -> dict:
     except (OSError, subprocess.TimeoutExpired) as e:
         raise AppLauncherError(f"app-launcherを実行できませんでした: {e}") from e
 
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    stderr = proc.stderr.decode("utf-8", errors="replace")
     try:
-        data = json.loads(proc.stdout.strip() or "{}")
+        data = json.loads(stdout.strip() or "{}")
     except json.JSONDecodeError as e:
-        detail = proc.stderr.strip() or str(e)
+        detail = stderr.strip() or str(e)
         raise AppLauncherError(f"app-launcherの出力を読めませんでした: {detail}") from e
 
     if not data.get("ok"):

@@ -225,7 +225,7 @@ class GrepOfficeFilesTests(unittest.TestCase):
             _make_xlsx(f, "検索対象文字列")
             from ore_filer.services.search_service import grep_files
             results = grep_files(root, "検索対象文字列")
-        self.assertTrue(any(r.path == f for r in results), "xlsx がヒットしていない")
+        self.assertTrue(any(r.path == f.resolve() for r in results), "xlsx がヒットしていない")
 
     def test_grep_finds_docx_text(self) -> None:
         """grep_files が docx の段落テキストをヒットすること。"""
@@ -235,7 +235,7 @@ class GrepOfficeFilesTests(unittest.TestCase):
             _make_docx(f, "ドキュメント本文テキスト")
             from ore_filer.services.search_service import grep_files
             results = grep_files(root, "ドキュメント本文テキスト")
-        self.assertTrue(any(r.path == f for r in results), "docx がヒットしていない")
+        self.assertTrue(any(r.path == f.resolve() for r in results), "docx がヒットしていない")
 
     def test_grep_finds_pptx_text(self) -> None:
         """grep_files が pptx のスライドテキストをヒットすること。"""
@@ -245,7 +245,7 @@ class GrepOfficeFilesTests(unittest.TestCase):
             _make_pptx(f, "プレゼンテーションの内容")
             from ore_filer.services.search_service import grep_files
             results = grep_files(root, "プレゼンテーションの内容")
-        self.assertTrue(any(r.path == f for r in results), "pptx がヒットしていない")
+        self.assertTrue(any(r.path == f.resolve() for r in results), "pptx がヒットしていない")
 
     def test_grep_lineno_matches_extract_lineno(self) -> None:
         """grep_files の lineno が extract_office_text の行番号と一致すること。"""
@@ -256,7 +256,7 @@ class GrepOfficeFilesTests(unittest.TestCase):
             from ore_filer.services.search_service import grep_files
             from ore_filer.services.office_text import extract_office_text
             results = grep_files(root, "ユニークな値")
-            hit = next(r for r in results if r.path == f)
+            hit = next(r for r in results if r.path == f.resolve())
             lines = extract_office_text(f).splitlines()
             # 1-indexed
             self.assertIn("ユニークな値", lines[hit.lineno - 1])
@@ -269,7 +269,7 @@ class GrepOfficeFilesTests(unittest.TestCase):
             _make_xlsx(f, "セル", "テキストボックスの中身")
             from ore_filer.services.search_service import grep_files
             results = grep_files(root, "テキストボックスの中身")
-        self.assertTrue(any(r.path == f for r in results))
+        self.assertTrue(any(r.path == f.resolve() for r in results))
 
 
 if __name__ == "__main__":
