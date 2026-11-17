@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from ore_filer.gui.dialogs.text_viewers import (
@@ -13,7 +14,6 @@ from ore_filer.gui.dialogs.text_viewers import (
 	XmlViewerDialog,
 )
 from ore_filer.gui.dialogs.viewers import (
-	IMAGE_EXTENSIONS,
 	HtmlViewerDialog,
 	ImageViewerDialog,
 	MarkdownViewerDialog,
@@ -30,21 +30,37 @@ class MainWindowViewersMixin:
 
 	def _open_image_viewer(self, path: Path) -> None:
 		try:
-			parent = path.parent
-			images = sorted(
-				[p for p in parent.iterdir() if p.is_file() and p.suffix.casefold() in IMAGE_EXTENSIONS],
-				key=lambda p: p.name.casefold(),
-			)
-			if not images:
-				return
-			try:
-				index = next(i for i, p in enumerate(images) if p.name.casefold() == path.name.casefold())
-			except StopIteration:
-				index = 0
-			dialog = ImageViewerDialog(images, index, self)
-			dialog.exec()
+			# 画像ビューア表示中にメインウィンドウのカーソルを追従させるため、開いたペインを記録する
+			self._image_viewer_pane = self.active_pane
+			viewer = getattr(self, "_image_viewer", None)
+			if viewer is None:
+				viewer = ImageViewerDialog(path, self, on_changed=self._on_image_viewer_changed)
+				self._image_viewer = viewer
+			else:
+				viewer.show_path(path)
+			viewer.show()
+			viewer.raise_()
+			viewer.activateWindow()
 		except Exception as error:  # noqa: BLE001
 			QMessageBox.critical(self, "画像ビューア エラー", str(error))
+
+
+	def _on_image_viewer_changed(self, path: Path, retries: int = 5) -> None:
+		"""ビューアで表示中の画像をメインウィンドウのカーソルに反映する。
+		追加直後のファイルはペインの一覧に未反映のことがあるため、見つからなければ少し待って再試行する。"""
+		pane = getattr(self, "_image_viewer_pane", None)
+		if pane is None:
+			return
+		try:
+			if pane.current_path.resolve() != path.parent.resolve():
+				return
+			if pane.has_file_name(path.name) or retries <= 0:
+				pane.focus_name(path.name)
+			else:
+				QTimer.singleShot(200, lambda: self._on_image_viewer_changed(path, retries - 1))
+		except RuntimeError:
+			# タブ削除などで対象ペインの C++ オブジェクトが破棄済みの場合
+			pass
 
 
 	def _open_markdown_viewer(self, path: Path) -> None:

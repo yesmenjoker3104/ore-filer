@@ -201,7 +201,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "tab_close":        "Ctrl+W",
     "tab_next":         "Shift+Right",
     "tab_prev":         "Shift+Left",
-    "fit_name_column":  "Ctrl+Equal",
+    "fit_name_column":  "Ctrl+Shift+Minus",
 }
 
 

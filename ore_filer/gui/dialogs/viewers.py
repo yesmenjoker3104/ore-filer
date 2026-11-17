@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from bisect import bisect_left
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -64,10 +66,21 @@ HEX_EXTENSIONS = {
 
 
 class ImageViewerDialog(QDialog):
-    def __init__(self, paths: list[Path], index: int, parent=None):
+    """同一フォルダ内の画像を前後に送って表示する非モーダルビューア。
+
+    画像一覧は表示のたびにフォルダを再スキャンするため、表示中に追加された画像も対象になる。
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        parent=None,
+        on_changed: Callable[[Path], None] | None = None,
+    ):
         super().__init__(parent)
-        self._paths = paths
-        self._index = index
+        self._directory = path.parent
+        self._current = path
+        self._on_changed = on_changed
         self._pixmap: QPixmap | None = None
 
         self.setWindowTitle("画像ビューア")
@@ -87,21 +100,49 @@ class ImageViewerDialog(QDialog):
         layout.addWidget(self._image_label, 1)
         layout.addWidget(self._info_label)
 
-        self._load_image()
+        self._show(self._scan_images())
 
-    def _load_image(self) -> None:
-        path = self._paths[self._index]
-        self._pixmap = QPixmap(str(path))
-        if self._pixmap.isNull():
-            self._pixmap = None
-            self._image_label.setText("読み込めませんでした")
+    def show_path(self, path: Path) -> None:
+        """表示対象を差し替える（既存ビューアの再利用用）。"""
+        self._directory = path.parent
+        self._current = path
+        self._show(self._scan_images())
+
+    def _scan_images(self) -> list[Path]:
+        try:
+            return sorted(
+                (
+                    p for p in self._directory.iterdir()
+                    if p.is_file() and p.suffix.casefold() in IMAGE_EXTENSIONS
+                ),
+                key=lambda p: p.name.casefold(),
+            )
+        except OSError:
+            return []
+
+    def _show(self, paths: list[Path]) -> None:
+        path = self._current
+        self._pixmap = None
+        if path.is_file():
+            pixmap = QPixmap(str(path))
+            if pixmap.isNull():
+                self._image_label.setText("読み込めませんでした")
+            else:
+                self._pixmap = pixmap
+                self._update_display()
         else:
-            self._update_display()
-        self._info_label.setText(
-            f"{path.name}  ({self._index + 1} / {len(self._paths)})"
+            self._image_label.setText("ファイルが見つかりません")
+
+        position = next(
+            (i for i, p in enumerate(paths) if p.name.casefold() == path.name.casefold()),
+            None,
         )
+        count = f"{position + 1} / {len(paths)}" if position is not None else f"{len(paths)} 件"
+        self._info_label.setText(f"{path.name}  ({count})")
         self.setWindowTitle(f"画像ビューア - {path.name}")
 
+        if self._on_changed is not None and path.is_file():
+            self._on_changed(path)
     def _update_display(self) -> None:
         if self._pixmap is None:
             return
@@ -128,10 +169,20 @@ class ImageViewerDialog(QDialog):
             super().keyPressEvent(event)
 
     def _navigate(self, delta: int) -> None:
-        new_index = (self._index + delta) % len(self._paths)
-        if new_index != self._index:
-            self._index = new_index
-            self._load_image()
+        paths = self._scan_images()
+        if not paths:
+            self._show(paths)
+            return
+        # 現在ファイルが一覧から消えていた場合は、名前順での挿入位置を基準にする
+        key = self._current.name.casefold()
+        keys = [p.name.casefold() for p in paths]
+        pos = bisect_left(keys, key)
+        if pos < len(keys) and keys[pos] == key:
+            new_index = (pos + delta) % len(paths)
+        else:
+            new_index = (pos if delta > 0 else pos - 1) % len(paths)
+        self._current = paths[new_index]
+        self._show(paths)
 
 
 # ── マークダウンビューア ──────────────────────────────────────

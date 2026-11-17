@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QDir,
     QFileInfo,
+    QItemSelection,
     QItemSelectionModel,
     QModelIndex,
     QSize,
@@ -203,6 +204,16 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         if self._pending_focus is not None:
             QTimer.singleShot(300, self._apply_pending_focus)
 
+    def _proxy_index_for_name(self, name: str) -> QModelIndex:
+        """現在のディレクトリ直下の name に対応する表示側 index を返す（無ければ無効 index）。"""
+        source_index = self.model.index(str(self.current_path / name))
+        if not source_index.isValid():
+            return QModelIndex()
+        return self.filter_model.mapFromSource(source_index)
+
+    def has_file_name(self, name: str) -> bool:
+        return self._proxy_index_for_name(name).isValid()
+
     def _update_path_label(self) -> None:
         if self.is_remote_view():
             self.path_label.setText(self._remote_location())
@@ -240,8 +251,8 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self._update_path_label()
 
     def _schedule_file_sort(self, *args) -> None:
-        if not self._sort_timer.isActive():
-            self._sort_timer.start()
+        # 行追加が続く間は再スケジュールし、読み込みが落ち着いてからソートする
+        self._sort_timer.start()
 
     def _sort_file_model(self) -> None:
         if self.is_archive_view() or self.is_remote_view():
@@ -413,8 +424,24 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
             header.setSectionResizeMode(column, header.ResizeMode.Interactive)
 
     def fit_name_column(self) -> None:
-        """Name列の幅をファイル名の長さに合わせて広げる（キーボード操作用）。"""
-        self.file_view.resizeColumnToContents(0)
+        """Name列の幅を現在のディレクトリ内で最も長いファイル名に合わせる（キーボード操作用）。
+
+        resizeColumnToContents は表示中の行しか測らないため、全行を直接測る。
+        """
+        view = self.file_view
+        model = view.model()
+        if model is None:
+            return
+        root = view.rootIndex()
+        font_metrics = view.fontMetrics()
+        widest = 0
+        for row in range(model.rowCount(root)):
+            name = model.index(row, 0, root).data(Qt.ItemDataRole.DisplayRole)
+            if name:
+                widest = max(widest, font_metrics.horizontalAdvance(str(name)))
+        if widest:
+            # アイコン分と左右の余白を加える
+            view.setColumnWidth(0, widest + view.iconSize().width() + 24)
 
     def has_search_results(self) -> bool:
         return self._search_results is not None
@@ -640,6 +667,17 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
             return []
         root = self.file_view.rootIndex()
         result = []
+        if model is self.filter_model:
+            # 通常表示: 行ごとの Path 生成や stat を避け、ソースモデルのキャッシュで判定する
+            for row in range(model.rowCount(root)):
+                index = model.index(row, 0, root)
+                source_index = model.mapToSource(index)
+                if source_index.isValid() and self.model.fileName(source_index) == "..":
+                    continue
+                if not include_dirs and self.model.isDir(source_index):
+                    continue
+                result.append(index)
+            return result
         for row in range(model.rowCount(root)):
             index = model.index(row, 0, root)
             path = self.path_from_index(index)
@@ -649,6 +687,24 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
                 continue
             result.append(index)
         return result
+
+    def _select_indexes(self, indexes: list[QModelIndex]) -> None:
+        """連続する行をまとめて、一度の選択変更として適用する（行ごとのシグナル発火を避ける）。"""
+        if not indexes:
+            return
+        selection = QItemSelection()
+        start = prev = indexes[0]
+        for index in indexes[1:]:
+            if index.row() == prev.row() + 1:
+                prev = index
+                continue
+            selection.select(start, prev)
+            start = prev = index
+        selection.select(start, prev)
+        self.file_view.selectionModel().select(
+            selection,
+            QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+        )
 
     def select_all_files(self) -> None:
         """ファイルのみ全選択。全選択済みの場合は選択解除（トグル）。"""
@@ -660,8 +716,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         if all_selected:
             sel.clearSelection()
         else:
-            for i in indexes:
-                sel.select(i, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+            self._select_indexes(indexes)
         self.file_view.viewport().update()
 
     def select_all_items(self) -> None:
@@ -674,8 +729,7 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         if all_selected:
             sel.clearSelection()
         else:
-            for i in indexes:
-                sel.select(i, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+            self._select_indexes(indexes)
         self.file_view.viewport().update()
 
     def select_current_and_move_down(self) -> None:
@@ -737,14 +791,11 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         self._pending_focus = None
 
         if target:
-            target_lower = target.casefold()
-            for row in range(model.rowCount(root)):
-                index = model.index(row, 0, root)
-                path = self.path_from_index(index)
-                if path and path.name.casefold() == target_lower:
-                    self.file_view.setCurrentIndex(index)
-                    self.file_view.scrollTo(index)
-                    return
+            index = self._proxy_index_for_name(target)
+            if index.isValid():
+                self.file_view.setCurrentIndex(index)
+                self.file_view.scrollTo(index)
+                return
 
         first = model.index(0, 0, root)
         if first.isValid():
@@ -801,6 +852,19 @@ class PaneWidget(PaneArchiveMixin, PaneRemoteMixin, QWidget):
         return len(self.file_view.selectionModel().selectedRows(0))
 
     def selected_total_size(self) -> int:
+        selection = self.file_view.selectionModel()
+        if (
+            not self.is_archive_view()
+            and not self.is_remote_view()
+            and self.file_view.model() is self.filter_model
+        ):
+            # 通常表示: QFileSystemModel のキャッシュを使い、行ごとの stat を避ける
+            total = 0
+            for index in selection.selectedRows(0):
+                source = self.filter_model.mapToSource(index)
+                if source.isValid() and not self.model.isDir(source):
+                    total += self.model.size(source)
+            return total
         total = 0
         for path in self.selected_paths():
             if path.is_file():
