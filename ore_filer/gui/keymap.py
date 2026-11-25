@@ -110,7 +110,6 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "sync_other":       "相手ペインをこちらに合わせる",
     "font_larger":      "フォントを大きく",
     "font_smaller":     "フォントを小さく",
-    "keymap_help":      "キー一覧を表示",
     "command_palette":  "コマンドパレット",
     "update_check":     "バージョン情報 / アップデートを確認",
     "quit":             "アプリを終了",
@@ -129,6 +128,19 @@ ACTION_DESCRIPTIONS: dict[str, str] = {
     "tab_next":         "次のタブへ",
     "tab_prev":         "前のタブへ",
     "fit_name_column":  "Name列をファイル名に合わせて広げる",
+    "large_folders":    "大きいフォルダを一覧化",
+    "new_folder":       "新規フォルダを作成",
+    "view_text":        "テキストとして表示",
+    "git_stage":        "Git: ステージ",
+    "git_unstage":      "Git: ステージ解除",
+    "git_commit":       "Git: コミット",
+    "git_fetch":        "Git: Fetch",
+    "git_pull":         "Git: Pull",
+    "git_push":         "Git: Push",
+    "git_diff":         "Git: 差分表示",
+    "git_log":          "Git: ログ",
+    "git_switch_branch":"Git: ブランチ切替",
+    "git_create_branch":"Git: 新規ブランチ",
 }
 
 # デフォルトバインディング（アクション名 → キースペック文字列）
@@ -183,8 +195,7 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "sync_other":       "Shift+O",
     "font_larger":      "Plus",
     "font_smaller":     "Minus",
-    "keymap_help":      "Question",
-    "command_palette":  "Ctrl+Shift+P",
+    "command_palette":  "Question",
     "update_check":     "Ctrl+Shift+U",
     "remote_connect":   "Ctrl+Shift+S",
     "quit":             "Q",
@@ -201,7 +212,8 @@ DEFAULT_BINDINGS: dict[str, str] = {
     "tab_close":        "Ctrl+W",
     "tab_next":         "Shift+Right",
     "tab_prev":         "Shift+Left",
-    "fit_name_column":  "Ctrl+Shift+Minus",
+    "fit_name_column":  "Y",
+    "large_folders":    "Ctrl+Shift+I",
 }
 
 
@@ -313,6 +325,16 @@ class KeyMap:
         for action, spec_str in self._raw.items():
             desc = ACTION_DESCRIPTIONS.get(action, "")
             result.append((action, spec_str, desc))
+        result.sort(key=lambda t: t[0])
+        return result
+
+    def palette_bindings(self) -> list[tuple[str, str, str]]:
+        """コマンドパレット向けに、キー未割り当て操作も含めて返す。"""
+        actions = dict.fromkeys((*ACTION_DESCRIPTIONS, *self._raw))
+        result = [
+            (action, self._raw.get(action, ""), ACTION_DESCRIPTIONS.get(action, ""))
+            for action in actions
+        ]
         result.sort(key=lambda t: t[0])
         return result
 

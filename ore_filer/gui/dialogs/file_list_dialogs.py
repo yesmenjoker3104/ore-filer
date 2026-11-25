@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ore_filer.gui.dialogs.common import _fmt_file_size
-from ore_filer.gui.threads import SearchThread
+from ore_filer.gui.threads import DirSizeThread, SearchThread
 
 
 class SearchDialog(QDialog):
@@ -156,6 +156,122 @@ class SearchDialog(QDialog):
 			self.query_edit.setEnabled(False)
 			self.search_button.setEnabled(False)
 			self.ok_button.setEnabled(False)
+			self._thread.requestInterruption()
+			return
+		super().reject()
+
+	def closeEvent(self, event) -> None:
+		if self._thread is not None and self._thread.isRunning():
+			self.reject()
+			event.ignore()
+			return
+		super().closeEvent(event)
+
+
+class LargeFolderDialog(QDialog):
+	"""現在フォルダー直下のフォルダーを合計サイズ順に表示する。"""
+
+	def __init__(self, root: str | Path, parent=None):
+		super().__init__(parent)
+		self.root = Path(root).expanduser().resolve()
+		self._thread: DirSizeThread | None = None
+		self._selected_path: Path | None = None
+		self._closing = False
+
+		self.setWindowTitle("大きいフォルダ")
+		self.resize(760, 520)
+
+		self.status_label = QLabel(f"調査場所: {self.root}", self)
+		self.result_table = QTableWidget(0, 3, self)
+		self.result_table.setHorizontalHeaderLabels(["フォルダ", "サイズ", "ファイル数"])
+		self.result_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+		self.result_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+		self.result_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+		self.result_table.horizontalHeader().setStretchLastSection(False)
+		self.result_table.setColumnWidth(0, 440)
+		self.result_table.setColumnWidth(1, 150)
+		self.result_table.setColumnWidth(2, 100)
+		self.result_table.verticalHeader().setVisible(False)
+		self.result_table.itemDoubleClicked.connect(self._accept_selected)
+
+		self.buttons = QDialogButtonBox(
+			QDialogButtonBox.StandardButton.Open
+			| QDialogButtonBox.StandardButton.Cancel,
+			parent=self,
+		)
+		self.open_button = self.buttons.button(QDialogButtonBox.StandardButton.Open)
+		self.open_button.setEnabled(False)
+		self.buttons.accepted.connect(self._accept_selected)
+		self.buttons.rejected.connect(self.reject)
+
+		layout = QVBoxLayout(self)
+		layout.addWidget(self.status_label)
+		layout.addWidget(self.result_table, 1)
+		layout.addWidget(self.buttons)
+
+		self._start_scan()
+
+	def _start_scan(self) -> None:
+		try:
+			folders = [path for path in self.root.iterdir() if path.is_dir()]
+		except OSError as error:
+			self.status_label.setText(f"フォルダを列挙できません: {error}")
+			return
+		if not folders:
+			self.status_label.setText("このフォルダにはサブフォルダがありません")
+			return
+
+		self.status_label.setText(f"0 / {len(folders)} フォルダを計算中...")
+		self._thread = DirSizeThread(folders, self)
+		self._thread.progress.connect(self.status_label.setText)
+		self._thread.finished_with.connect(self._show_results)
+		self._thread.finished.connect(self._scan_finished)
+		self._thread.start()
+
+	def _show_results(self, results: list[tuple[Path, int, int]]) -> None:
+		if self._closing:
+			return
+		results.sort(key=lambda item: (-item[1], item[0].name.casefold()))
+		self.result_table.setRowCount(len(results))
+		for row, (path, size, file_count) in enumerate(results):
+			name_item = QTableWidgetItem(path.name)
+			name_item.setData(Qt.ItemDataRole.UserRole, str(path))
+			size_item = QTableWidgetItem(_fmt_file_size(size).split(" (", 1)[0])
+			count_item = QTableWidgetItem(f"{file_count:,}")
+			self.result_table.setItem(row, 0, name_item)
+			self.result_table.setItem(row, 1, size_item)
+			self.result_table.setItem(row, 2, count_item)
+
+		if results:
+			self.result_table.setCurrentCell(0, 0)
+			self.open_button.setEnabled(True)
+		self.status_label.setText(f"{len(results)} フォルダ（大きい順）")
+
+	def _scan_finished(self) -> None:
+		thread = self._thread
+		self._thread = None
+		if thread is not None:
+			thread.deleteLater()
+		if self._closing:
+			super().reject()
+
+	def _accept_selected(self, _item=None) -> None:
+		item = self.result_table.currentItem()
+		if item is None:
+			return
+		path_item = self.result_table.item(item.row(), 0)
+		value = path_item.data(Qt.ItemDataRole.UserRole)
+		if value:
+			self._selected_path = Path(value)
+			super().accept()
+
+	def selected_path(self) -> Path | None:
+		return self._selected_path
+
+	def reject(self) -> None:
+		if self._thread is not None and self._thread.isRunning():
+			self._closing = True
+			self.status_label.setText("計算を中止しています...")
 			self._thread.requestInterruption()
 			return
 		super().reject()
@@ -526,45 +642,6 @@ class FileInfoDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(buttons)
-
-
-# ── キー一覧ダイアログ ────────────────────────────────────────
-
-
-class KeymapHelpDialog(QDialog):
-    def __init__(self, bindings: list[tuple[str, str, str]], parent=None):
-        """bindings: [(action, key_spec, description), ...]"""
-        super().__init__(parent)
-        self.setWindowTitle("キー一覧")
-        self.resize(640, 600)
-
-        table = QTableWidget(len(bindings), 3, self)
-        table.setHorizontalHeaderLabels(["アクション", "キー", "説明"])
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setColumnWidth(0, 160)
-        table.setColumnWidth(1, 120)
-        table.verticalHeader().setVisible(False)
-        table.setAlternatingRowColors(True)
-
-        for row, (action, key_spec, desc) in enumerate(bindings):
-            table.setItem(row, 0, QTableWidgetItem(action))
-            table.setItem(row, 1, QTableWidgetItem(key_spec))
-            table.setItem(row, 2, QTableWidgetItem(desc))
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, parent=self)
-        buttons.accepted.connect(self.accept)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(table, 1)
-        layout.addWidget(buttons)
-
-    def keyPressEvent(self, event) -> None:
-        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q, Qt.Key.Key_Question):
-            self.accept()
-        else:
-            super().keyPressEvent(event)
 
 
 # ── コマンドパレット ──────────────────────────────────────────

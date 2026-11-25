@@ -148,7 +148,7 @@ class MainWindowArchiveMixin:
 			f"選択した項目を次のフォルダーへ展開しますか？\n\n"
 			f"{inactive_pane.current_path}",
 			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-			QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.Yes,
 		)
 		if confirm != QMessageBox.StandardButton.Yes:
 			return

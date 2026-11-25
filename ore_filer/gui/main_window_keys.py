@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QDialog, QMessageBox
 
-from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog, KeymapHelpDialog
+from ore_filer.gui.dialogs.file_list_dialogs import CommandPaletteDialog
 from ore_filer.gui.keymap import user_keymap_file
 
 
@@ -81,7 +81,15 @@ class MainWindowKeysMixin:
 	def _run_action(self, action: str) -> bool:
 		"""アクション名を受け取り対応する処理を実行する。処理した場合 True を返す。
 		コマンドパレットからも eventFilter からも呼ばれる。"""
-		if action == "center_splitter":
+		if action == "enter":
+			self.enter_current_item()
+		elif action == "execute":
+			self.execute_associated()
+		elif action == "go_first":
+			self.active_pane.go_to_first_item()
+		elif action == "go_last":
+			self.active_pane.go_to_last_item()
+		elif action == "center_splitter":
 			self._center_splitter()
 		elif action == "copy":
 			self.copy_selected()
@@ -132,6 +140,8 @@ class MainWindowKeysMixin:
 			self._show_file_info()
 		elif action == "folder_size":
 			self.calc_folder_size()
+		elif action == "large_folders":
+			self.show_large_folders()
 		elif action == "open_editor":
 			self.open_editor()
 		elif action == "set_editor":
@@ -190,6 +200,8 @@ class MainWindowKeysMixin:
 					fv.expand(index)
 		elif action == "new_file":
 			self.create_new_file()
+		elif action == "new_folder":
+			self.create_folder()
 		elif action == "explorer":
 			self.reveal_in_explorer_here()
 		elif action == "toggle_hidden":
@@ -198,8 +210,28 @@ class MainWindowKeysMixin:
 			self.diff_files()
 		elif action == "git_menu":
 			self.show_git_menu()
-		elif action == "keymap_help":
-			self.show_keymap_help()
+		elif action == "git_stage":
+			self.git_stage()
+		elif action == "git_unstage":
+			self.git_unstage()
+		elif action == "git_commit":
+			self.git_commit()
+		elif action == "git_fetch":
+			self.git_fetch()
+		elif action == "git_pull":
+			self.git_pull()
+		elif action == "git_push":
+			self.git_push()
+		elif action == "git_diff":
+			self.git_diff()
+		elif action == "git_log":
+			self.git_log()
+		elif action == "git_switch_branch":
+			self.git_switch_branch()
+		elif action == "git_create_branch":
+			self.git_create_branch()
+		elif action == "view_text":
+			self.view_text()
 		elif action == "command_palette":
 			self.show_command_palette()
 		elif action == "toggle_preview":
@@ -240,7 +272,7 @@ class MainWindowKeysMixin:
 
 	def show_command_palette(self) -> None:
 		"""コマンドパレットを開き、選択されたアクションを実行する。"""
-		bindings = self._keymap.all_bindings()
+		bindings = self._keymap.palette_bindings()
 		dlg = CommandPaletteDialog(bindings, self)
 		if dlg.exec() == QDialog.DialogCode.Accepted:
 			action = dlg.accepted_action()
@@ -264,10 +296,3 @@ class MainWindowKeysMixin:
 			self._keymap_watcher.addPath(path)
 		self._keymap.reload()
 		self.statusBar().showMessage("キーマップを再読み込みしました", 3000)
-
-
-	# ── キー一覧 ─────────────────────────────────────────────
-
-	def show_keymap_help(self) -> None:
-		bindings = self._keymap.all_bindings()
-		KeymapHelpDialog(bindings, self).exec()

@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -150,6 +151,66 @@ def install_update(new_exe_path: str, new_launcher_path: str = "") -> None:
         _replace_file(new_exe_path, sys.executable)
     finally:
         shutil.rmtree(os.path.dirname(new_exe_path), ignore_errors=True)
+
+
+def update_script_path() -> str:
+    if getattr(sys, "frozen", False):
+        bundle_root = getattr(sys, "_MEIPASS", "")
+        if bundle_root:
+            return os.path.join(bundle_root, "ore_filer", "apply_update.ps1")
+    return os.path.join(os.path.dirname(__file__), "apply_update.ps1")
+
+
+def start_update_process(
+    new_exe_path: str,
+    new_launcher_path: str = "",
+) -> None:
+    """現プロセスの終了後に更新を適用し、ore-filer を再起動する。"""
+    if sys.platform != "win32":
+        raise RuntimeError("自動アップデートはWindows版でのみ利用できます。")
+    if not getattr(sys, "frozen", False):
+        raise RuntimeError("自動アップデートはexe版でのみ利用できます。")
+
+    script = update_script_path()
+    if not os.path.isfile(script):
+        raise RuntimeError(f"アップデートスクリプトが見つかりません: {script}")
+    temporary_script = os.path.join(
+        os.path.dirname(os.path.abspath(new_exe_path)),
+        "apply_update.ps1",
+    )
+    shutil.copy2(script, temporary_script)
+
+    environment = os.environ.copy()
+    environment["ORE_FILER_PARENT_PID"] = str(os.getpid())
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        temporary_script,
+        "-CurrentExecutable",
+        sys.executable,
+        "-NewExecutable",
+        new_exe_path,
+    ]
+    if new_launcher_path:
+        command.extend(["-NewLauncher", new_launcher_path])
+
+    try:
+        subprocess.Popen(
+            command,
+            cwd=tempfile.gettempdir(),
+            env=environment,
+            creationflags=(
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_NO_WINDOW
+            ),
+            close_fds=True,
+        )
+    except Exception:
+        shutil.rmtree(os.path.dirname(new_exe_path), ignore_errors=True)
+        raise
 
 
 def cleanup_old_exe() -> None:

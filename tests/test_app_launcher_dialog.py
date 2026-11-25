@@ -352,6 +352,9 @@ class KeymapTests(unittest.TestCase):
     def test_open_with_app_uses_l(self) -> None:
         self.assertEqual(DEFAULT_BINDINGS["open_with_app"], "L")
 
+    def test_fit_name_column_uses_y(self) -> None:
+        self.assertEqual(DEFAULT_BINDINGS["fit_name_column"], "Y")
+
     def test_default_bindings_have_no_duplicates(self) -> None:
         values = list(DEFAULT_BINDINGS.values())
         self.assertEqual(len(values), len(set(values)))

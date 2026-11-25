@@ -5,7 +5,11 @@ from datetime import UTC
 from PySide6.QtWidgets import QMessageBox
 
 from ore_filer.settings import load_session
-from ore_filer.updater import UpdateCheckThread, UpdateDownloadThread, install_update
+from ore_filer.updater import (
+	UpdateCheckThread,
+	UpdateDownloadThread,
+	start_update_process,
+)
 
 
 class MainWindowUpdateMixin:
@@ -44,8 +48,10 @@ class MainWindowUpdateMixin:
 		answer = QMessageBox.question(
 			self,
 			"アップデート",
-			f"新しいバージョン {tag} があります。ダウンロードしますか？",
+			f"新しいバージョン {tag} があります。\n"
+			"ダウンロードして更新後、自動的に再起動しますか？",
 			QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+			QMessageBox.StandardButton.Yes,
 		)
 		if answer != QMessageBox.StandardButton.Yes:
 			return
@@ -65,13 +71,16 @@ class MainWindowUpdateMixin:
 		import sys
 
 		if getattr(sys, "frozen", False):
-			install_update(path, launcher_path)
-			QMessageBox.information(
-				self,
-				"アップデート完了",
-				"アップデートを適用しました。\nアプリを再起動してください。",
-				QMessageBox.StandardButton.Ok,
-			)
+			try:
+				start_update_process(path, launcher_path)
+			except Exception as error:  # noqa: BLE001
+				QMessageBox.critical(
+					self,
+					"アップデート失敗",
+					f"自動更新を開始できませんでした。\n{error}",
+				)
+				return
+			self.statusBar().showMessage("アップデートを適用して再起動します...")
 			self.close()
 		else:
 			self.statusBar().showMessage("開発モードのためインストールをスキップしました")

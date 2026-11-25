@@ -41,6 +41,7 @@ jobs:
           --name ore-filer
           --icon "ore_filer/icon.ico"
           --add-data "ore_filer/icon.ico;ore_filer"
+          --add-data "ore_filer/apply_update.ps1;ore_filer"
           ore_filer/app.py
 
       - name: Check out app-launcher

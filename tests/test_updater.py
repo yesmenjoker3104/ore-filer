@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import sys
+import os
+import subprocess
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -11,6 +14,8 @@ from ore_filer.updater import (
     _select_download_url,
     cleanup_old_exe,
     install_update,
+    start_update_process,
+    update_script_path,
 )
 
 
@@ -144,3 +149,120 @@ def test_cleanup_old_exe_removes_both_backups(frozen_install: Path, tmp_path: Pa
 
     assert not old_ore.exists()
     assert not old_launcher.exists()
+
+
+def test_start_update_process_waits_for_current_process(
+    frozen_install: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    new_exe = tmp_path / "ore-filer-update.exe"
+    new_exe.write_bytes(b"new")
+
+    with patch("ore_filer.updater.subprocess.Popen") as popen:
+        start_update_process(str(new_exe))
+
+    command = popen.call_args.args[0]
+    assert command[:4] == [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+    ]
+    assert "-File" in command
+    assert command[command.index("-CurrentExecutable") + 1] == sys.executable
+    assert command[command.index("-NewExecutable") + 1] == str(new_exe)
+    assert popen.call_args.kwargs["env"]["ORE_FILER_PARENT_PID"] == str(os.getpid())
+    assert Path(popen.call_args.kwargs["cwd"]) != frozen_install
+
+
+def _exited_process_id() -> int:
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    process.wait()
+    return process.pid
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell update script is Windows-only")
+def test_update_script_replaces_both_executables_without_launch(tmp_path: Path) -> None:
+    install_dir = tmp_path / "install"
+    launcher_dir = install_dir / "app-launcher"
+    staging_dir = tmp_path / "staging"
+    launcher_dir.mkdir(parents=True)
+    staging_dir.mkdir()
+    current = install_dir / "ore-filer.exe"
+    launcher = launcher_dir / "app-launcher.exe"
+    staged_exe = staging_dir / "ore-filer.exe"
+    staged_launcher = staging_dir / "app-launcher.exe"
+    current.write_bytes(b"old-ore")
+    launcher.write_bytes(b"old-launcher")
+    staged_exe.write_bytes(b"new-ore")
+    staged_launcher.write_bytes(b"new-launcher")
+    environment = os.environ.copy()
+    environment["ORE_FILER_PARENT_PID"] = str(_exited_process_id())
+
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            update_script_path(),
+            "-CurrentExecutable",
+            str(current),
+            "-NewExecutable",
+            str(staged_exe),
+            "-NewLauncher",
+            str(staged_launcher),
+            "-SkipLaunch",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert current.read_bytes() == b"new-ore"
+    assert launcher.read_bytes() == b"new-launcher"
+    assert not current.with_suffix(current.suffix + ".old").exists()
+    assert not launcher.with_suffix(launcher.suffix + ".old").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell update script is Windows-only")
+def test_update_script_restores_previous_exe_on_failure(tmp_path: Path) -> None:
+    install_dir = tmp_path / "install"
+    staging_dir = tmp_path / "staging"
+    install_dir.mkdir()
+    staging_dir.mkdir()
+    current = install_dir / "ore-filer.exe"
+    current.write_bytes(b"old-ore")
+    environment = os.environ.copy()
+    environment["ORE_FILER_PARENT_PID"] = str(_exited_process_id())
+
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            update_script_path(),
+            "-CurrentExecutable",
+            str(current),
+            "-NewExecutable",
+            str(staging_dir / "missing.exe"),
+            "-SkipLaunch",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert current.read_bytes() == b"old-ore"
+    assert not Path(str(current) + ".old").exists()

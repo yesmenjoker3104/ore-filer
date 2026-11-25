@@ -9,7 +9,6 @@ from ore_filer.gui.dialogs.file_list_dialogs import (
     FileInfoDialog,
     FilterDialog,
     HistoryDialog,
-    KeymapHelpDialog,
     SearchDialog,
     SortDialog,
 )
@@ -83,7 +82,6 @@ __all__ = [
     "HtmlViewerDialog",
     "ImageViewerDialog",
     "JsonViewerDialog",
-    "KeymapHelpDialog",
     "LogViewerDialog",
     "MarkdownViewerDialog",
     "PdfViewerDialog",

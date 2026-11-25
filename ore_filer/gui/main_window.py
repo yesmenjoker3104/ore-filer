@@ -16,6 +16,7 @@ from ore_filer.gui.dialogs.file_list_dialogs import (
 	FileInfoDialog,
 	FilterDialog,
 	HistoryDialog,
+	LargeFolderDialog,
 	SearchDialog,
 	SortDialog,
 )
@@ -746,6 +747,16 @@ class MainWindow(MainWindowRemoteMixin, MainWindowArchiveMixin, MainWindowFileOp
 		thread.finished.connect(self._on_dir_size_thread_finished)
 		self._dir_size_thread = thread
 		thread.start()
+
+	def show_large_folders(self) -> None:
+		"""現在フォルダー直下のサブフォルダーを大きい順に一覧表示する。"""
+		if self.active_pane.is_archive_view() or self.active_pane.is_remote_view():
+			return
+		dialog = LargeFolderDialog(self.active_pane.current_path, self)
+		if dialog.exec() == QDialog.DialogCode.Accepted:
+			selected = dialog.selected_path()
+			if selected is not None:
+				self.active_pane.navigate_to(selected)
 
 	def _on_dir_size_finished(self, results: list) -> None:
 		self.statusBar().clearMessage()

@@ -61,6 +61,7 @@ reload          = "Shift+End"       # 再読み込み
 refresh         = "F5"              # F5 で再読み込み
 file_info       = "I"               # ファイル情報
 folder_size     = "Shift+I"         # フォルダサイズ計算
+large_folders   = "Ctrl+Shift+I"    # 大きいフォルダを一覧化
 context_menu    = "Backslash"       # シェルコンテキストメニュー
 center_splitter = "Equal"           # スプリッターを中央に
 font_larger     = "Plus"            # フォントを大きく
@@ -91,14 +92,13 @@ toggle_hidden   = "Shift+H"         # 隠しファイル表示を切り替える
 git_menu        = "G"               # Git メニュー（ステージ/コミット/fetch/pull/push/差分/ログ/ブランチ）
 
 # ── システム ───────────────────────────────────────────────
-keymap_help     = "Question"        # キー一覧を表示
-command_palette = "Ctrl+Shift+P"    # コマンドパレット
+command_palette = "Question"        # コマンドパレット
 toggle_preview  = "Ctrl+Q"          # プレビューモード切替
 tab_new         = "Ctrl+T"          # 新しいタブを開く
 tab_close       = "Ctrl+W"          # 現在のタブを閉じる
 tab_next         = "Shift+Right"     # 次のタブへ
 tab_prev         = "Shift+Left"      # 前のタブへ
-fit_name_column  = "Ctrl+Shift+Minus" # Name列をファイル名に合わせて広げる（JIS: Ctrl+=）
+fit_name_column  = "Y"               # Name列をファイル名に合わせて広げる
 update_check    = "Ctrl+Shift+U"    # バージョン情報 / アップデートを確認
 remote_connect  = "Ctrl+Shift+S"    # リモート（SFTP）に接続／接続中なら切断
 quit            = "Q"               # アプリを終了

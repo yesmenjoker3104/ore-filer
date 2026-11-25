@@ -354,7 +354,7 @@ class CommandPaletteDialogTests(unittest.TestCase):
     def test_command_palette_key_is_in_default_bindings(self) -> None:
         from ore_filer.gui.keymap import DEFAULT_BINDINGS
         self.assertIn("command_palette", DEFAULT_BINDINGS)
-        self.assertEqual(DEFAULT_BINDINGS["command_palette"], "Ctrl+Shift+P")
+        self.assertEqual(DEFAULT_BINDINGS["command_palette"], "Question")
 
     def test_no_duplicate_default_bindings(self) -> None:
         """デフォルトバインディングにキーの重複がないこと（既存テストを再確認）。"""

@@ -75,10 +75,10 @@ def test_fit_name_column_widens_to_filename(tmp_path):
 
 
 def test_fit_name_column_binding():
-    """Name列フィットは JIS の Ctrl+= （Ctrl+Shift+Minus）に割り当てられている。"""
+    """Name列フィットは Y に割り当てられている。"""
     from ore_filer.gui.keymap import DEFAULT_BINDINGS
 
-    assert DEFAULT_BINDINGS["fit_name_column"] == "Ctrl+Shift+Minus"
+    assert DEFAULT_BINDINGS["fit_name_column"] == "Y"
 
 
 def test_initial_tab_count(tmp_path):
