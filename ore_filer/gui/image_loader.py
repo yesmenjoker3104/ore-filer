@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import ImageOps
-from pillow_heif import open_heif
 from PySide6.QtGui import QImage, QPixmap
 
-HEIF_EXTENSIONS = frozenset({".heic", ".heif"})
+from ore_filer.services.image_operations import HEIF_EXTENSIONS, open_heif_image
 
 
 def load_image_pixmap(path: Path) -> QPixmap:
@@ -14,8 +12,7 @@ def load_image_pixmap(path: Path) -> QPixmap:
         return QPixmap(str(path))
 
     try:
-        heif_file = open_heif(path, convert_hdr_to_8bit=True)
-        image = ImageOps.exif_transpose(heif_file.to_pillow())
+        image = open_heif_image(path)
     except (ValueError, EOFError, SyntaxError, RuntimeError, OSError):
         return QPixmap()
 

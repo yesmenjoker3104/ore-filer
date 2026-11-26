@@ -112,6 +112,8 @@ class MainWindowKeysMixin:
 			self.rename_item()
 		elif action == "bulk_rename":
 			self.bulk_rename()
+		elif action == "convert_images":
+			self.convert_selected_images()
 		elif action == "select_down":
 			self.active_pane.select_current_and_move_down()
 		elif action == "select_up":

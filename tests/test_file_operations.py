@@ -14,6 +14,98 @@ from PySide6.QtWidgets import QApplication, QDialog
 _app = QApplication.instance() or QApplication([])
 
 
+class ImageConversionTests(unittest.TestCase):
+    def _make_heic(self, path: Path) -> None:
+        from PIL import Image
+        from pillow_heif import from_pillow
+
+        from_pillow(Image.new("RGB", (4, 3), (12, 34, 56))).save(path)
+
+    def test_converts_heic_to_jpeg_and_keeps_source(self) -> None:
+        from PIL import Image
+
+        from ore_filer.services.image_operations import convert_images
+
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "photo.heic"
+            destination = source.with_suffix(".jpg")
+            self._make_heic(source)
+
+            convert_images([(source, destination)], output_format="JPG")
+
+            self.assertTrue(source.exists())
+            with Image.open(destination) as image:
+                self.assertEqual(image.format, "JPEG")
+                self.assertEqual(image.size, (4, 3))
+
+    def test_reports_progress_for_multiple_images(self) -> None:
+        from ore_filer.services.image_operations import convert_images
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pairs: list[tuple[Path, Path]] = []
+            for name in ("a.heic", "b.heif"):
+                source = root / name
+                self._make_heic(source)
+                pairs.append((source, source.with_suffix(".jpg")))
+            progress: list[tuple[int, int]] = []
+
+            convert_images(
+                pairs,
+                output_format="JPG",
+                progress_cb=lambda done, total: progress.append((done, total)),
+            )
+
+            self.assertEqual(progress, [(1, 2), (2, 2)])
+
+    def test_converts_png_to_webp(self) -> None:
+        from PIL import Image
+
+        from ore_filer.services.image_operations import convert_images
+
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "photo.png"
+            destination = source.with_suffix(".webp")
+            Image.new("RGB", (3, 2), "blue").save(source)
+
+            convert_images([(source, destination)], output_format="WebP")
+
+            with Image.open(destination) as image:
+                self.assertEqual(image.format, "WEBP")
+
+    def test_rejects_wrong_destination_extension(self) -> None:
+        from ore_filer.services.image_operations import convert_images
+
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "photo.heic"
+            self._make_heic(source)
+
+            with self.assertRaisesRegex(ValueError, "PNG保存先"):
+                convert_images([(source, source.with_suffix(".jpg"))], output_format="PNG")
+
+    def test_rejects_same_source_and_destination(self) -> None:
+        from ore_filer.services.image_operations import convert_images
+
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "photo.heic"
+            self._make_heic(source)
+
+            with self.assertRaisesRegex(ValueError, "別のパス"):
+                convert_images([(source, source)], output_format="JPG")
+
+    def test_main_window_action_routes_to_conversion(self) -> None:
+        from ore_filer.gui.main_window import MainWindow
+
+        with TemporaryDirectory() as tmp:
+            window = MainWindow(tmp, tmp)
+            with mock.patch.object(window, "convert_selected_images") as convert:
+                result = window._run_action("convert_images")
+            window.close()
+
+        self.assertTrue(result)
+        convert.assert_called_once_with()
+
+
 # ── unique_path ───────────────────────────────────────────────────────────────
 
 

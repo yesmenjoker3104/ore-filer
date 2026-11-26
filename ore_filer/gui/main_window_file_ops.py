@@ -6,9 +6,12 @@ from pathlib import Path
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QDialog, QInputDialog, QMessageBox
 
-from ore_filer.gui.dialogs.common import ConflictDialog, MultiLineInputDialog, confirm_list
+from ore_filer.gui.dialogs.common import (
+	ConflictDialog,
+	MultiLineInputDialog,
+	confirm_list,
+)
 from ore_filer.gui.threads import FileOperationThread
-from ore_filer.services.undo import UndoEntry, UndoRecord
 from ore_filer.services.file_operations import (
 	copy_items,
 	copy_paths,
@@ -21,6 +24,11 @@ from ore_filer.services.file_operations import (
 	trash_paths,
 	unique_path,
 )
+from ore_filer.services.image_operations import (
+	CONVERSION_FORMATS,
+	convert_images,
+)
+from ore_filer.services.undo import UndoEntry, UndoRecord
 
 
 class MainWindowFileOpsMixin:
@@ -387,6 +395,68 @@ class MainWindowFileOpsMixin:
 			lambda cb, p=resolved: move_items(p, progress_cb=cb),
 			"移動しています...",
 			f"{len(resolved)}件を移動しました。",
+			total=len(resolved),
+			on_done=lambda _rec=undo_record: self._undo_stack.push(_rec),
+		)
+
+
+	def convert_selected_images(self) -> None:
+		"""選択した画像を指定形式へ変換する。元画像は残す。"""
+		paths = self.active_pane.selected_paths()
+		from ore_filer.gui.dialogs.viewers import IMAGE_EXTENSIONS
+		sources = [path for path in paths if path.is_file() and path.suffix.casefold() in IMAGE_EXTENSIONS]
+		if not sources:
+			QMessageBox.information(
+				self,
+				"画像変換",
+				"変換する画像を選択してください。",
+			)
+			return
+
+		output_format, ok = QInputDialog.getItem(
+			self,
+			"画像形式の変更",
+			"変換後の形式を選択してください（複数選択時はすべて同じ形式）:",
+			list(CONVERSION_FORMATS),
+			0,
+			False,
+		)
+		if not ok:
+			return
+
+		extension = CONVERSION_FORMATS[output_format]["extension"]
+		pairs: list[tuple[Path, Path]] = []
+		for source in sources:
+			destination = source.with_suffix(extension)
+			if source.suffix.casefold() == extension:
+				destination = unique_path(destination)
+			pairs.append((source, destination))
+		if not confirm_list(
+			self,
+			"画像形式の変更",
+			f"次の画像を同じフォルダへ {output_format} として保存しますか？\n元の画像は残ります。",
+			[path.name for path in sources],
+		):
+			return
+
+		resolved = self._resolve_conflicts(pairs)
+		if resolved is None:
+			return
+		if not resolved:
+			self.statusBar().showMessage("変換する画像がありません（すべてスキップ）", 3000)
+			return
+
+		undo_record = UndoRecord(
+			kind="create",
+			label=f"{len(resolved)}件を{output_format}へ変換",
+			entries=[UndoEntry(current=dst, original=None) for _, dst in resolved],
+		)
+		self._start_file_operation(
+			lambda cb, p=resolved, f=output_format: convert_images(
+				p, output_format=f, progress_cb=cb
+			),
+			f"{output_format}へ変換しています...",
+			f"{len(resolved)}件を{output_format}へ変換しました。",
 			total=len(resolved),
 			on_done=lambda _rec=undo_record: self._undo_stack.push(_rec),
 		)

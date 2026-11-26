@@ -37,6 +37,7 @@ trash           = "Shift+K"         # ごみ箱へ移動
 undo            = "Ctrl+Z"          # 元に戻す
 rename          = "R"               # 名前の変更
 bulk_rename     = "Shift+R"         # 一括リネーム
+convert_images = "J"                # 画像形式を変換
 archive         = "P"               # アーカイブ作成
 extract         = "U"               # アーカイブ展開
 
