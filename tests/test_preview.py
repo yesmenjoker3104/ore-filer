@@ -85,6 +85,29 @@ class PreviewPanelTests(unittest.TestCase):
             _app.processEvents()
         panel.close()
 
+    def test_set_path_heic_file(self) -> None:
+        from PIL import Image
+        from pillow_heif import from_pillow
+
+        panel = self._panel()
+        with TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "test.heic"
+            from_pillow(Image.new("RGB", (2, 3), "red")).save(image_path)
+
+            panel.set_path(image_path)
+            _app.processEvents()
+
+            self.assertEqual(panel._stack.currentIndex(), 2)
+            self.assertIsNotNone(panel._current_pixmap)
+            self.assertFalse(panel._current_pixmap.isNull())
+        panel.close()
+
+    def test_heif_extensions_are_images(self) -> None:
+        from ore_filer.gui.dialogs.viewers import IMAGE_EXTENSIONS
+
+        self.assertIn(".heic", IMAGE_EXTENSIONS)
+        self.assertIn(".heif", IMAGE_EXTENSIONS)
+
 
 # ── キーバインディング ─────────────────────────────────────────────────────────
 

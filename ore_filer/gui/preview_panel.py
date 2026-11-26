@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ore_filer.gui.dialogs.viewers import IMAGE_EXTENSIONS
+from ore_filer.gui.image_loader import load_image_pixmap
 from ore_filer.services.office_text import OFFICE_EXTENSIONS, extract_office_text
 
 _PREVIEW_TEXT_LIMIT = 256 * 1024  # 256 KB
@@ -155,7 +156,7 @@ class PreviewPanel(QWidget):
         self._stack.setCurrentIndex(_PAGE_TEXT)
 
     def _show_image(self, path: Path) -> None:
-        px = QPixmap(str(path))
+        px = load_image_pixmap(path)
         if px.isNull():
             self._show_file_info(path)
             return

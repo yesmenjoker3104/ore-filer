@@ -8,10 +8,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QLabel, QTextBrowser, QVBoxLayout
 
+from ore_filer.gui.image_loader import HEIF_EXTENSIONS, load_image_pixmap
+
 IMAGE_EXTENSIONS = {
     ".bmp", ".gif", ".jpg", ".jpeg", ".png",
     ".tga", ".tif", ".tiff", ".webp",
-}
+} | set(HEIF_EXTENSIONS)
 
 
 MARKDOWN_EXTENSIONS = {
@@ -124,7 +126,7 @@ class ImageViewerDialog(QDialog):
         path = self._current
         self._pixmap = None
         if path.is_file():
-            pixmap = QPixmap(str(path))
+            pixmap = load_image_pixmap(path)
             if pixmap.isNull():
                 self._image_label.setText("読み込めませんでした")
             else:

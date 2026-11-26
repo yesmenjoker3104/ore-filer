@@ -40,6 +40,7 @@ jobs:
           --windowed
           --name ore-filer
           --icon "ore_filer/icon.ico"
+          --collect-all pillow_heif
           --add-data "ore_filer/icon.ico;ore_filer"
           --add-data "ore_filer/apply_update.ps1;ore_filer"
           ore_filer/app.py
